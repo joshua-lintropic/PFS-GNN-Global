@@ -1,12 +1,12 @@
 import torch
 from torch import Tensor
 from torch_geometric.data import HeteroData
-import math
+import matplotlib.pyplot as plt
 import numpy as np
-import os
+from os.path import join
 import config as cfg
 
-def build_bipartite(num_src: int, num_tgt: int, class_info: Tensor, 
+def build_bipartite_stochastic(num_src: int, num_tgt: int, class_info: Tensor, 
                     prob_edges: Tensor, seed: int = None) -> HeteroData:
     """
     Create a heterogeneous bipartite graph modeling PFS galaxy evolution exposures.
@@ -17,8 +17,8 @@ def build_bipartite(num_src: int, num_tgt: int, class_info: Tensor,
     # === Source node feature construction. ===
     # Uniformly distribute positions in the unit disk using Vogel's method.
     # Resulting `src_pos` has size (num_src, 2). 
-    golden_ratio = (1 + math.sqrt(5)) / 2
-    golden_angle = 2 * math.pi * (1 - 1 / golden_ratio)
+    golden_ratio = (1 + np.sqrt(5)) / 2
+    golden_angle = 2 * np.pi * (1 - 1 / golden_ratio)
     src_idx = torch.arange(1, num_src + 1, dtype=torch.float)
     src_mod = torch.sqrt(src_idx / num_src)
     src_arg = src_idx * golden_angle
@@ -28,32 +28,37 @@ def build_bipartite(num_src: int, num_tgt: int, class_info: Tensor,
 
     # Set an inner radius. Source nodes cannot observe galaxies which are 
     # strictly closer than the inner radius. 
-    r_inner = 0.001
-    inner_radii = torch.full((num_src, 1), r_inner)
+    inner_radii = torch.full((num_src, 1), cfg.annulus[0])
 
     # Set an outer radius. Source nodes cannot observe galaxies which are 
     # strictly further than the outer radius. 
-    r_outer = 0.1
-    outer_radii = torch.full((num_src, 1), r_outer)
+    outer_radii = torch.full((num_src, 1), cfg.annulus[1])
 
     # Combine into source nodes. Resulting size of (num_src, 4). 
     src_nodes = torch.cat([src_pos, inner_radii, outer_radii], dim=1)
 
     # === Target node feature construction. ===
-    # Evenly distribute class labels among the target nodes by interleaving. 
+    # Label the galaxies according to their class number. 
     # Resulting `labels` has size (num_tgt, 1). 
     labels = torch.cat([
+        torch.full((int(count / cfg.num_fields),), float(i+1))
+        for i, count in enumerate(class_info[:,1])
+    ]).unsqueeze(1)
+
+    # Required number of exposures to completion. Initialized to class values. 
+    # Resulting `requirements` has size (num_tgt, 1).
+    requirements = torch.cat([
         torch.full((int(count / cfg.num_fields),), float(time_req))
         for time_req, count in class_info
     ]).unsqueeze(1)
 
     # Number of exposures already received by target nodes. Initialized to zeros.
-    exposures = torch.zeros((num_tgt, 1))
+    progress = torch.zeros((num_tgt, 1))
 
     # Random positions in the unit disk. 
     # Resulting `tgt_pos` has size (num_tgt, 2). 
     tgt_mod = torch.sqrt(torch.rand(num_tgt))
-    tgt_arg = 2 * math.pi * torch.rand(num_tgt)
+    tgt_arg = 2 * np.pi * torch.rand(num_tgt)
     tgt_x = tgt_mod * torch.cos(tgt_arg)
     tgt_y = tgt_mod * torch.sin(tgt_arg)
     tgt_pos = torch.stack([tgt_x, tgt_y], dim=1)
@@ -61,26 +66,30 @@ def build_bipartite(num_src: int, num_tgt: int, class_info: Tensor,
     # The intra-class priority of each galaxy. Sampled uniformly from [0,1). 
     priority = torch.rand((num_tgt, 1))
 
-    # Combine into target nodes. Resulting size of (num_tgt, 5). 
-    tgt_nodes = torch.cat([labels, exposures, tgt_pos, priority], dim=1)
+    # Combine into target nodes. Resulting size of (num_tgt, 6). 
+    tgt_nodes = torch.cat([labels, requirements, progress, tgt_pos, priority], dim=1)
 
     # === Edge connectivity construction. === 
     edge_src = []
     edge_tgt = []
-    k = prob_edges.size(0)
+    edge_rank = []
     for t in range(num_tgt): 
         # Filter by distance constraints. Must be within the annulus of observation.
         dist = torch.norm(src_pos - tgt_pos[t], dim=1)
-        valid = ((r_inner <= dist) & (dist <= r_outer)).nonzero(as_tuple=False).squeeze()
+        valid = ((cfg.annulus[0] <= dist) & (dist <= cfg.annulus[1]))\
+                .nonzero(as_tuple=False).squeeze()
         if valid.numel() == 0: 
             continue
         # Sort valid by ascending distance, and take k nearest neighbors. 
         valid = valid[dist[valid].argsort()]
-        k_nearest = valid[:k]
+        k_nearest = valid[:prob_edges.size(0)]
+        n_edges = np.random.choice(np.arange(len(k_nearest)), p=prob_edges)
         for e, s in enumerate(k_nearest):
-            if torch.rand(1).item() <= prob_edges[e].item():
-                edge_src.append(s.item())
-                edge_tgt.append(t)
+            if e >= n_edges: 
+                break
+            edge_src.append(s.item())
+            edge_tgt.append(t)
+            edge_rank.append(e)
         
     if edge_src:
         edge_index = torch.tensor([edge_src, edge_tgt], dtype=torch.long)
@@ -99,19 +108,100 @@ def build_bipartite(num_src: int, num_tgt: int, class_info: Tensor,
     data['src', 'to', 'tgt'].edge_attr = edge_attr
     data['global'].x = global_x
 
-    return data
+    return data, edge_rank
+
+
+def visualize_bipartite_spatial(data: HeteroData, edge_rank: list[int], 
+                                max_edges: int, edge_alpha: float, src_size: int, 
+                                tgt_size: int, figsize: tuple):
+    """
+    Scatter-plot src and tgt nodes at their 2D positions and draw (sampled) edges.
+
+    Args:
+        data         : HeteroData with 'src' and 'tgt' node types and a
+                       ('src','to','tgt') edge relation.
+        max_edges    : maximum number of edges to plot (randomly sampled).
+        edge_alpha   : transparency for edge lines.
+        node_size    : marker size for node scatter.
+        figsize      : size of the matplotlib figure.
+    """
+    src_pos = data['src'].x[:, :2].cpu().numpy()
+    tgt_pos = data['tgt'].x[:, 3:5].cpu().numpy()
+
+    # Sample edges if necessary.
+    edge_index = data['src', 'to', 'tgt'].edge_index.cpu().numpy()
+    edge_rank = np.array(edge_rank, dtype=int)
+    n_edges = edge_index.shape[1]
+    if n_edges > max_edges:
+        print(f'{n_edges} edges is too dense, truncating to {max_edges}')
+        idx = np.random.choice(n_edges, max_edges, replace=False)
+        edge_index = edge_index[:, idx]
+        edge_rank = edge_rank[idx]
+
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.set_aspect('equal')
+    ax.axis('off')
+
+    # Draw sampled edges.
+    edge_cmap = plt.get_cmap('viridis')
+    unique_ranks = np.unique(edge_rank)
+    edge_colors = {r: edge_cmap(i / (len(unique_ranks))) 
+              for i, r in enumerate(unique_ranks)}
+    for (s, t, r) in zip(edge_index[0], edge_index[1], edge_rank):
+        x0, y0 = src_pos[s]
+        x1, y1 = tgt_pos[t]
+        ax.plot([x0, x1], [y0, y1], lw=0.5, alpha=edge_alpha, 
+                color=edge_colors[r], zorder=1)
+
+    # Draw source nodes.
+    node_cmap = plt.get_cmap('tab20')
+    src_color = node_cmap(0)
+    ax.scatter(src_pos[:,0], src_pos[:,1], c=[src_color], s=src_size, 
+               marker='o', label='Fibers', zorder=2)
+
+    # Color target nodes by their class label.
+    class_labels = data['tgt'].x[:, 0].cpu().numpy()
+    unique_labels = np.unique(class_labels)
+    for idx, label in enumerate(unique_labels):
+        mask = class_labels == label
+        label_color = node_cmap((idx+1) / len(unique_labels))
+        ax.scatter(tgt_pos[mask, 0], tgt_pos[mask, 1], s=tgt_size, 
+                   c=[label_color], label=f'Class {int(label)}', 
+                   edgecolor='k', linewidth=0.2, alpha=0.9, zorder=3)
+
+    # Plot node legend. 
+    node_handles, node_labels = ax.get_legend_handles_labels()
+    node_legend = ax.legend(node_handles, node_labels, loc='upper right', 
+                            fontsize='small')
+    ax.add_artist(node_legend)
+
+    edge_handles = [plt.Line2D([0],[0], color=edge_colors[r], lw=2)
+               for r in unique_ranks]
+    endings = ['th', 'st', 'nd', 'rd', 'th']
+    edge_labels = [f'{r+1}{endings[min(r+1, len(endings)-1)]}-nearest' 
+                   for r in unique_ranks]
+    ax.legend(edge_handles, edge_labels, title='kth nearest neighbor', 
+              loc='upper left', fontsize='small')
+    ax.set_title('PFS Fiber-Galaxy Spatial Visualization with Connectivity')
+    plt.tight_layout()
+    plt.savefig(join(cfg.data_dir, cfg.viz_file), dpi=cfg.dpi)
 
 
 def main():
-    class_info = np.loadtxt(os.path.join(cfg.data_dir, cfg.class_file), delimiter=',')
+    # Construct and save bipartite graph. 
+    class_info = np.loadtxt(join(cfg.data_dir, cfg.class_file), delimiter=',')
     class_info = torch.tensor(class_info)
     prob_edges = torch.tensor([0.0, 0.65, 0.3, 0.05])
-    data = build_bipartite(num_src=cfg.num_fibers, 
+    data, edge_rank = build_bipartite_stochastic(num_src=cfg.num_fibers, 
                            num_tgt=int(cfg.num_galaxies/cfg.num_fields), 
                            class_info=class_info, 
                            prob_edges=prob_edges, 
                            seed=cfg.seed)
-    torch.save(data, os.path.join(cfg.data_dir, cfg.graph_file))
+    torch.save(data, join(cfg.data_dir, cfg.data_file))
+
+    # Visualize bipartite graph via 2D positions.     
+    visualize_bipartite_spatial(data, edge_rank, max_edges=50_000, edge_alpha=1.0, 
+                                src_size=30, tgt_size=10, figsize=(16,16))
 
 
 if __name__ == '__main__':

@@ -7,9 +7,6 @@ elif getattr(torch.backends, 'mps', None) and torch.backends.mps.is_available():
 else:
     device = torch.device('cpu')
 
-# random seeds
-seed = 42
-
 # project directories
 data_dir = '../data/'
 models_dir = '../models/'
@@ -17,7 +14,8 @@ figures_dir = '../figures/'
 
 # load and save points 
 class_file = 'class_info.csv'
-graph_file = 'bipartite_graph.pt'
+data_file = 'bipartite_graph.pt'
+viz_file = 'bipartite_graph.png'
 checkpoint_file = 'model_gnn_dev.pt'
 pretrained_file = 'model_gnn_core.pt'
 
@@ -27,6 +25,7 @@ num_fibers = 2_000 # number of source nodes
 num_fields = 10 # partitioning of the sky
 num_rounds = 4 # rounds of message-passing
 total_exposures = 42 # number of observations stages
+annulus = (1e-6, 1e-1)
 
 # hyperparameters
 retrain = False
@@ -41,3 +40,7 @@ weights = {
 }
 sharps = (0.0, 100.0)
 min_sharp = 50.0
+
+# miscellaneous 
+seed = 42
+dpi = 600
