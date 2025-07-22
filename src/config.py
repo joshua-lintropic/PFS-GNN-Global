@@ -7,6 +7,9 @@ elif getattr(torch.backends, 'mps', None) and torch.backends.mps.is_available():
 else:
     device = torch.device('cpu')
 
+# random seeds
+seed = 42
+
 # project directories
 data_dir = '../data/'
 models_dir = '../models/'
@@ -19,10 +22,11 @@ checkpoint_file = 'model_gnn_dev.pt'
 pretrained_file = 'model_gnn_core.pt'
 
 # problem parameters
-num_galaxies = 338_900 
-num_fibers = 2_000
-num_fields = 10
-total_exposures = 42
+num_galaxies = 338_900 # number of target nodes
+num_fibers = 2_000 # number of source nodes
+num_fields = 10 # partitioning of the sky
+num_rounds = 4 # rounds of message-passing
+total_exposures = 42 # number of observations stages
 
 # hyperparameters
 retrain = False

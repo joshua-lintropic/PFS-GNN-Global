@@ -43,8 +43,8 @@ def build_bipartite(num_src: int, num_tgt: int, class_info: Tensor,
     # Evenly distribute class labels among the target nodes by interleaving. 
     # Resulting `labels` has size (num_tgt, 1). 
     labels = torch.cat([
-        torch.full((int(count),), float(time_req))
-        for time_req, count in enumerate(class_info)
+        torch.full((int(count / cfg.num_fields),), float(time_req))
+        for time_req, count in class_info
     ]).unsqueeze(1)
 
     # Number of exposures already received by target nodes. Initialized to zeros.
@@ -71,8 +71,8 @@ def build_bipartite(num_src: int, num_tgt: int, class_info: Tensor,
     for t in range(num_tgt): 
         # Filter by distance constraints. Must be within the annulus of observation.
         dist = torch.norm(src_pos - tgt_pos[t], dim=1)
-        src_valid = ((r_inner <= dist) & (dist <= r_outer)).nonzero(as_tuple=False).squeeze()
-        if src_valid.numel() == 0: 
+        valid = ((r_inner <= dist) & (dist <= r_outer)).nonzero(as_tuple=False).squeeze()
+        if valid.numel() == 0: 
             continue
         # Sort valid by ascending distance, and take k nearest neighbors. 
         valid = valid[dist[valid].argsort()]
@@ -89,7 +89,7 @@ def build_bipartite(num_src: int, num_tgt: int, class_info: Tensor,
         raise ValueError("No edges were generated")
     
     # === Global node feature construction. === 
-    global_x = torch.zeros((cfg.num_blocks, cfg.dim_global))
+    global_x = torch.zeros((cfg.num_rounds, cfg.lifted_dim))
     
     # === Build heterogeneous graph. === 
     data = HeteroData()
@@ -103,15 +103,15 @@ def build_bipartite(num_src: int, num_tgt: int, class_info: Tensor,
 
 
 def main():
-    class_info = np.loadtxt(os.join(cfg.data_dir, cfg.class_file), delimiter=',')
+    class_info = np.loadtxt(os.path.join(cfg.data_dir, cfg.class_file), delimiter=',')
     class_info = torch.tensor(class_info)
     prob_edges = torch.tensor([0.0, 0.65, 0.3, 0.05])
     data = build_bipartite(num_src=cfg.num_fibers, 
-                           num_tgt=cfg.num_galaxies/cfg.num_fields, 
+                           num_tgt=int(cfg.num_galaxies/cfg.num_fields), 
                            class_info=class_info, 
                            prob_edges=prob_edges, 
                            seed=cfg.seed)
-    torch.save(os.join(cfg.data_dir, cfg.graph_file))
+    torch.save(data, os.path.join(cfg.data_dir, cfg.graph_file))
 
 
 if __name__ == '__main__':
