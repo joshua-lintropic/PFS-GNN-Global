@@ -93,12 +93,12 @@ def build_bipartite_stochastic(num_src: int, num_tgt: int, class_info: Tensor,
         
     if edge_src:
         edge_index = torch.tensor([edge_src, edge_tgt], dtype=torch.long)
-        edge_attr = torch.zeros((edge_index.size(1), cfg.total_exposures))
+        edge_attr = torch.rand((edge_index.size(1), cfg.total_exposures))
     else: 
-        raise ValueError("No edges were generated")
+        raise ValueError('No edges were generated!')
     
     # === Global node feature construction. === 
-    global_x = torch.zeros((cfg.num_rounds, cfg.lifted_dim))
+    global_x = torch.rand((cfg.num_rounds, cfg.lifted_dim))
     
     # === Build heterogeneous graph. === 
     data = HeteroData()
