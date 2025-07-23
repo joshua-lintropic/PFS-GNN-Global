@@ -112,14 +112,14 @@ class GlobalModel(Sequential):
     """
     Graph-level update: pools node embeddings to update global features.
     """
-    def __init__(self, lifted_dim: int) -> None:
-        message_dim = 3 * lifted_dim
+    def __init__(self, dim: int) -> None:
+        message_dim = 3 * dim 
         super().__init__(
             Linear(message_dim, message_dim), 
             LeakyReLU(negative_slope=cfg.leaky_slope),
-            Linear(message_dim, lifted_dim)
+            Linear(message_dim, dim)
         )
-        self.norm = RMSNorm(lifted_dim)
+        self.norm = RMSNorm(dim)
 
     def forward(self, x_s: Tensor, x_t: Tensor, edge_index: Tensor, 
                 edge_attr: Tensor, x_u: Tensor) -> Tensor:
