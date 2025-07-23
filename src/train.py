@@ -23,8 +23,9 @@ def main(args):
                           num_tgt=int(cfg.num_galaxies/cfg.num_fields), 
                           class_info=class_info, 
                           prob_edges=prob_edges, 
+                          device=cfg.device,
                           seed=cfg.seed)
-    torch.save(data, join(cfg.data_dir, cfg.data_file))
+    # torch.save(data, join(cfg.data_dir, cfg.data_file))
 
     # Visualize bipartite graph via 2D positions.
     if args.visualize:

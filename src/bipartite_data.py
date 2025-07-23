@@ -1,5 +1,5 @@
 import torch
-from torch import Tensor
+from torch import Tensor, device
 from torch_geometric.data import HeteroData
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,7 +11,7 @@ class BipartiteData(HeteroData):
     Heterogeneous bipartite graph modeling PFS galaxy evolution exposures. 
     """
     def __init__(self, num_src: int, num_tgt: int, class_info: Tensor, 
-                prob_edges: Tensor, seed: int = None) -> HeteroData:
+                prob_edges: Tensor, device: device, seed: int = None) -> HeteroData:
         """
         Constructs bipartite graph with stochastic node features. 
 
@@ -34,7 +34,7 @@ class BipartiteData(HeteroData):
         # Resulting `src_pos` has size (num_src, 2). 
         golden_ratio = (1 + np.sqrt(5)) / 2
         golden_angle = 2 * np.pi * (1 - 1 / golden_ratio)
-        src_idx = torch.arange(1, num_src + 1, dtype=torch.float)
+        src_idx = torch.arange(1, num_src + 1, dtype=torch.float, device=device)
         src_mod = torch.sqrt(src_idx / num_src)
         src_arg = src_idx * golden_angle
         src_x = src_mod * torch.cos(src_arg)
@@ -43,11 +43,11 @@ class BipartiteData(HeteroData):
 
         # Set an inner radius. Source nodes cannot observe galaxies which are 
         # strictly closer than the inner radius. 
-        inner_radii = torch.full((num_src, 1), cfg.annulus[0])
+        inner_radii = torch.full((num_src, 1), cfg.annulus[0], device=device)
 
         # Set an outer radius. Source nodes cannot observe galaxies which are 
         # strictly further than the outer radius. 
-        outer_radii = torch.full((num_src, 1), cfg.annulus[1])
+        outer_radii = torch.full((num_src, 1), cfg.annulus[1], device=device)
 
         # Combine into source nodes. Resulting size of (num_src, 4). 
         src_nodes = torch.cat([src_pos, inner_radii, outer_radii], dim=1)
@@ -56,30 +56,30 @@ class BipartiteData(HeteroData):
         # Label the galaxies according to their class number. 
         # Resulting `labels` has size (num_tgt, 1). 
         labels = torch.cat([
-            torch.full((int(count / cfg.num_fields),), float(i+1))
+            torch.full((int(count / cfg.num_fields),), float(i+1), device=device)
             for i, count in enumerate(class_info[:,1])
         ]).unsqueeze(1)
 
         # Required number of exposures to completion. Initialized to class values. 
         # Resulting `requirements` has size (num_tgt, 1).
         requirements = torch.cat([
-            torch.full((int(count / cfg.num_fields),), float(time_req))
+            torch.full((int(count / cfg.num_fields),), float(time_req), device=device)
             for time_req, count in class_info
         ]).unsqueeze(1)
 
         # Number of exposures already received by target nodes. Initialized to zeros.
-        progress = torch.zeros((num_tgt, 1))
+        progress = torch.zeros((num_tgt, 1), device=device)
 
         # Random positions in the unit disk. 
         # Resulting `tgt_pos` has size (num_tgt, 2). 
-        tgt_mod = torch.sqrt(torch.rand(num_tgt))
-        tgt_arg = 2 * np.pi * torch.rand(num_tgt)
+        tgt_mod = torch.sqrt(torch.rand(num_tgt, device=device))
+        tgt_arg = 2 * np.pi * torch.rand(num_tgt, device=device)
         tgt_x = tgt_mod * torch.cos(tgt_arg)
         tgt_y = tgt_mod * torch.sin(tgt_arg)
         tgt_pos = torch.stack([tgt_x, tgt_y], dim=1)
 
         # The intra-class priority of each galaxy. Sampled uniformly from [0,1). 
-        priority = torch.rand((num_tgt, 1))
+        priority = torch.rand((num_tgt, 1), device=device)
 
         # Combine into target nodes. Resulting size of (num_tgt, 6). 
         tgt_nodes = torch.cat([labels, requirements, progress, tgt_pos, priority], dim=1)
@@ -107,13 +107,13 @@ class BipartiteData(HeteroData):
                 edge_rank.append(e)
             
         if edge_src:
-            edge_index = torch.tensor([edge_src, edge_tgt], dtype=torch.long)
-            edge_attr = torch.rand((edge_index.size(1), cfg.total_exposures))
+            edge_index = torch.tensor([edge_src, edge_tgt], dtype=torch.long, device=device)
+            edge_attr = torch.rand((edge_index.size(1), cfg.total_exposures), device=device)
         else: 
             raise ValueError('No edges were generated!')
         
         # === Global node feature construction. === 
-        global_x = torch.rand((cfg.num_rounds, cfg.lifted_dim))
+        global_x = torch.rand((cfg.num_rounds, cfg.lifted_dim), device=device)
         
         # === Build heterogeneous graph. === 
         self['src'].x = src_nodes
