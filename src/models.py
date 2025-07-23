@@ -186,6 +186,10 @@ class GraphNetwork(Module):
             Linear(lifted_edge_dim, lifted_edge_dim)
         )
 
+        # A state variable for whether source and target nodes are in 
+        # the higher-dimensional representation. 
+        self.encoded = False
+
         # Apply several rounds of message-passing blocks. 
         self.msg_pass_blocks = Sequential(*(Block(
             lifted_src_dim, lifted_tgt_dim, lifted_edge_dim, global_dim
@@ -218,22 +222,30 @@ class GraphNetwork(Module):
         edge_attr = data['src', 'to', 'tgt'].edge_attr
         x_u = data['global'].x
 
-        # Pass bipartite nodes through encoders. 
-        x_s = self.src_encoder(x_s)
-        x_t = self.tgt_encoder(x_t)
-
         # Apply several rounds of MetaLayer-style message passing on graph. 
-        x_s, x_t, (src, tgt), edge_attr, x_u = self.msg_pass_blocks(
+        x_s, x_t, (src, _), edge_attr, x_u = self.msg_pass_blocks(
             x_s, x_t, edge_index, edge_attr, x_u
         )
 
         # Apply exposure-wise softmax grouped by source nodes. 
         edge_attr = scatter_softmax(self.edge_decoder(edge_attr), src, dim=0)
 
-        # Return updated hetero graph. 
-        data['src'].x = self.src_decoder(x_s)
-        data['tgt'].x = self.tgt_decoder(x_t)
+        # Update the data. 
+        data['src'].x = x_s
+        data['tgt'].x = x_t
         data['src', 'to', 'tgt'].edge_attr = edge_attr
         data['global'].x = x_u
 
+        return data
+
+    def encode(self, data: BipartiteData) -> BipartiteData: 
+        data['src'].x = self.src_encoder(data['src'].x)
+        data['tgt'].x = self.tgt_encoder(data['tgt'].x)
+        self.encoded = True
+        return data
+
+    def decode(self, data: BipartiteData) -> BipartiteData:
+        data['src'].x = self.src_decoder(data['src'].x)
+        data['tgt'].x = self.tgt_decoder(data['tgt'].x)
+        self.encoded = False
         return data

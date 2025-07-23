@@ -26,6 +26,16 @@ class BipartiteData(HeteroData):
         self['edge_rank'] = torch.empty(0)
         self['class_labels'] = torch.empty(0)
         self['class_info'] = torch.empty(0)
+        self['time_req'] = torch.empty(0)
+        self['time_spent'] = torch.empty(0)
+        self['history'] = torch.empty(0)
+        self['plan'] = torch.empty(0)
+
+        self.optimal = {
+            'loss': np.inf, 
+            'objective': -np.inf, 
+            'epoch': -1, 
+        }
 
     def construct(self, num_src: int, num_tgt: int, class_info: Tensor, 
                 prob_edges: Tensor, device: device = None, 
@@ -79,13 +89,13 @@ class BipartiteData(HeteroData):
 
         # Required number of exposures to completion. Initialized to class values. 
         # Resulting `requirements` has size (num_tgt, 1).
-        requirements = torch.cat([
+        time_req = torch.cat([
             torch.full((int(count / cfg.num_fields),), float(time_req), device=device)
             for time_req, count in class_info
         ]).unsqueeze(1)
 
         # Number of exposures already received by target nodes. Initialized to zeros.
-        progress = torch.zeros((num_tgt, 1), device=device)
+        time_spent = torch.zeros((num_tgt, 1), device=device)
 
         # Random positions in the unit disk. 
         # Resulting `tgt_pos` has size (num_tgt, 2). 
@@ -99,7 +109,7 @@ class BipartiteData(HeteroData):
         priority = torch.rand((num_tgt, 1), device=device)
 
         # Combine into target nodes. Resulting size of (num_tgt, 6). 
-        tgt_nodes = torch.cat([labels, requirements, progress, tgt_pos, priority], dim=1)
+        tgt_nodes = torch.cat([labels, time_req, time_spent, tgt_pos, priority], dim=1)
 
         # === Edge connectivity construction. === 
         edge_src = []
@@ -142,6 +152,10 @@ class BipartiteData(HeteroData):
         self['edge_rank'] = torch.tensor(edge_rank, dtype=torch.long)
         self['class_labels'] = labels.to(torch.long)
         self['class_info'] = class_info
+        self['time_req'] = time_req
+        self['time_spent'] = time_spent
+        self['history'] = torch.zeros((cfg.num_histories, cfg.num_epochs))
+        self['plan'] = torch.zeros((num_src, num_tgt))
     
     def visualize(self, max_edges: int, edge_alpha: float, src_size: int,
                   tgt_size: int, figsize: tuple, path: str) -> None:
@@ -209,7 +223,7 @@ class BipartiteData(HeteroData):
         endings = ['th', 'st', 'nd', 'rd', 'th']
         edge_labels = [f'{r+1}{endings[min(r+1, len(endings)-1)]}-nearest' 
                     for r in unique_ranks]
-        ax.legend(edge_handles, edge_labels, title='kth nearest neighbor', 
+        ax.legend(edge_handles, edge_labels, title='kth nearest source', 
                 loc='upper left', fontsize='small')
         ax.set_title('PFS Fiber-Galaxy Spatial Visualization with Connectivity', fontsize=20)
         plt.tight_layout()

@@ -100,17 +100,18 @@ def compute_loss(data: BipartiteData, sharpness: float):
     src, tgt = data['src', 'to', 'tgt'].edge_index
     edge_attr = data['src', 'to', 'tgt'].edge_attr
     galaxy_requirement = F.leaky_relu(
-        data['tgt'].x[:,2] - data['tgt'].x[:,3],
+        data['time_req'] - data['time_spent'],
         negative_slope=cfg.leaky_slope
     )
 
     # Compute the fraction of galaxies completed in each class.
     edge_attr = straight_through_estimate(edge_attr, src)
-    galaxy_completed = scatter_sum(
+    observations = scatter_sum(
         edge_attr, tgt, dim=0, dim_size=data['tgt'].x.size(0)
     ).sum(dim=1) / galaxy_requirement
-    galaxy_completed = soft_floor(galaxy_completed, sharpness=sharpness)
-    class_counts = scatter_sum(galaxy_completed, data.class_labels)
+    observations.nan_to_num(nan=0.0, posinf=0.0, neginf=0.0)
+    observations = soft_floor(observations, sharpness=sharpness)
+    class_counts = scatter_sum(observations, data.class_labels)
     class_completion = class_counts / data['class_info'][:,1]
     min_completion = class_completion.min()
 
@@ -123,5 +124,21 @@ def compute_loss(data: BipartiteData, sharpness: float):
         negative_slope=cfg.leaky_slope
     )**2
 
-    return cfg.min_completion_weight * min_completion + \
-        cfg.fiber_overtime_weight * fiber_overtime
+    # Compute loss and objective. 
+    loss = cfg.weights['objective'] * min_completion + \
+        cfg.weights['overtime'] * fiber_overtime
+    return loss, min_completion, observations 
+
+
+def compute_upper_bound(data: BipartiteData) -> float:
+    """
+    Compute upper bound on the minimum completion per class. 
+    Assumes no discretization + all classes receive equal time.
+    """
+    total_required = torch.clamp(
+        data['time_req'] - data['time_spent'], 
+        min=0.0
+    ).sum()
+    total_available = cfg.total_exposures * cfg.num_fibers
+    return total_available / total_required
+    
