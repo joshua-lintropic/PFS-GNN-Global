@@ -18,7 +18,7 @@ class EdgeModel(Sequential):
             LeakyReLU(negative_slope=cfg.leaky_slope),
             Linear(message_dim, lifted_dim)
         )
-        self.norm = torch.nn.BatchNorm1d(lifted_dim)
+        self.norm = BatchNorm1d(lifted_dim)
 
     def forward(self, x_s: Tensor, x_t: Tensor, edge_index: Tensor, 
                 edge_attr: Tensor, x_u: Tensor) -> Tensor:
@@ -28,7 +28,7 @@ class EdgeModel(Sequential):
         return self.norm(super().forward(h))
 
 
-class SourceModel(torch.nn.Module):
+class SourceModel(Module):
     """
     Source-node update: aggregates incoming edge messages (with statistics)
     and updates source-node embeddings.
