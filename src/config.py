@@ -32,15 +32,15 @@ retrain = False
 num_epochs = 10_000
 lifted_dim = 10
 learning_rate = 5e-4
-weights = {
-    'class_overtime': -0.1,
-    'fiber_overtime': -0.1,
-    'min_completion': 2000.0,
-    'fiber_variance': 1.0,
-}
+leaky_slope = 0.1
+p_class = 0.1
+p_fiber = 0.1
+w_utils = 2000.0
+w_var = 1.0
 sharps = (0.0, 100.0)
 min_sharp = 50.0
 
 # miscellaneous 
 seed = 42
 dpi = 600
+eps = 1e-6
