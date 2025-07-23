@@ -46,7 +46,8 @@ def train_step(data: BipartiteData, model: GraphNetwork,
 
 def train(): 
     # Create the message-passing network and lift the data. 
-    data = torch.load(join(cfg.data_dir, cfg.data_file), device=cfg.device)
+    data = torch.load(join(cfg.data_dir, cfg.data_file), weights_only=False)
+    data = data.to(cfg.device)
     model = GraphNetwork(
         num_blocks = cfg.num_blocks, 
         src_dim = data['src'].x.size(1),
@@ -88,4 +89,4 @@ def main():
             )
 
 if __name__ == '__main__': 
-    pass
+    main()

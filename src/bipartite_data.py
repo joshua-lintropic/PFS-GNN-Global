@@ -11,7 +11,7 @@ import config as cfg
 def parse_args():
     parser = ArgumentParser(description="Train bipartite graph & optionally visualize.")
     parser.add_argument('--save', type=lambda x: (str(x).lower() == 'true'), 
-                        default=False, help='Toggle data saving (True/False)')
+                        default=True, help='Toggle data saving (True/False)')
     parser.add_argument('--visualize', type=lambda x: (str(x).lower() == 'true'), 
                         default=False, help='Toggle visualization (True/False)')
     return parser.parse_args()
@@ -140,7 +140,7 @@ class BipartiteData(HeteroData):
             raise ValueError('No edges were generated!')
         
         # === Global node feature construction. === 
-        global_x = torch.rand((cfg.num_rounds, cfg.lifted_dim), device=device)
+        global_x = torch.rand((cfg.num_blocks, cfg.global_dim), device=device)
         
         # === Build heterogeneous graph. === 
         self['src'].x = src_nodes
