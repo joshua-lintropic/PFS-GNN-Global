@@ -225,11 +225,13 @@ class GraphNetwork(Module):
             x_s, x_t, edge_index, edge_attr, x_u
         )
 
+        # Apply exposure-wise softmax grouped by source nodes. 
+        edge_attr = scatter_softmax(self.edge_decoder(edge_attr), src, dim=0)
+
+        # Return updated hetero graph. 
         data['src'].x = self.src_decoder(x_s)
         data['tgt'].x = self.tgt_decoder(x_t)
-        data['src', 'to', 'tgt'].edge_attr = scatter_softmax(
-            self.edge_decoder(edge_attr), src, dim=0
-        )
+        data['src', 'to', 'tgt'].edge_attr = edge_attr
         data['global'].x = x_u
 
         return data
