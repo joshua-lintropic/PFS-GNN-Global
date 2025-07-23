@@ -2,6 +2,8 @@
 
 This repo implements a deep learning pipeline to predict connectivity properties in bipartite graphs using PyTorch. It is designed to solve the allocation problem which the Prime Focus Spectrograph faces: a high-dimensional combinatorial optimization between fibers on the PFS telescope and galaxies in its fields of observation. 
 
+For the class-based bipartite model, see (joshua-lintropic/PFS-Class-Optimizer)[https://github.com/joshua-lintropic/PFS-Class-Optimizer].
+
 ![Bipartite Graph](data/bipartite_graph.png)
 
 ## Project Structure
