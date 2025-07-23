@@ -1,143 +1,233 @@
 import torch
-from torch.nn import Linear, LeakyReLU, Sequential, BatchNorm1d, RMSNorm, Module
-from torch.nn.functional import leaky_relu, softplus
-from torch_geometric.data import Data
-from torch_scatter import scatter
+from torch import Tensor
+from torch.nn import Linear, LeakyReLU, BatchNorm1d, RMSNorm, Sequential, Module
+import torch.nn.functional as F
+from torch_geometric.data import HeteroData
+from torch_scatter import scatter_add, scatter_mean, scatter_softmax
 import config as cfg
 
-class BipartiteData(Data):
-    def __init__(self, edge_index, x_s, x_t, x_e, x_u):
-        super(BipartiteData, self).__init__()
-        self.edge_index = edge_index.to(cfg.device)
-        self.x_s = x_s.to(cfg.device)
-        self.x_t = x_t.to(cfg.device)
-        self.x_e = x_e.to(cfg.device)
-        self.x_u = x_u.to(cfg.device)
-
-class MLP(Sequential):
-    def __init__(self, dimensions, negative_slopes=0.1):
-        if type(negative_slopes) == float:
-            negative_slopes = [negative_slopes for _ in range(len(dimensions) - 1)]
-        if len(dimensions) != len(negative_slopes) + 1:
-            raise IndexError("dimensions should be one longer than negative_slopes")
-        layers = []
-        for i in range(len(dimensions) - 1):
-            in_dim = dimensions[i]
-            out_dim = dimensions[i+1]
-            layers.append(Linear(in_dim, out_dim))
-            if i < len(dimensions) - 2:
-                layers.append(LeakyReLU(negative_slopes[i]))
-        super(MLP, self).__init__(*layers)
-
-class EdgeModel(MLP):
-    def __init__(self, lifted_dim):
+class EdgeModel(Sequential):
+    """
+    TODO. 
+    """
+    def __init__(self, lifted_dim: int) -> None:
         message_dim = 4 * lifted_dim
-        super(EdgeModel, self).__init__(message_dim, message_dim, lifted_dim)
-        self.norm = BatchNorm1d(lifted_dim)
+        super().__init__(
+            Linear(message_dim, message_dim), 
+            LeakyReLU(negative_slope=cfg.leaky_slope),
+            Linear(message_dim, lifted_dim)
+        )
+        self.norm = torch.nn.BatchNorm1d(lifted_dim)
 
-    def forward(self, x_s, x_t, edge_index, edge_attr, u):
+    def forward(self, x_s: Tensor, x_t: Tensor, edge_index: Tensor, 
+                edge_attr: Tensor, x_u: Tensor) -> Tensor:
         src, tgt = edge_index
         E = edge_attr.size(0)
-        h = torch.cat([x_s[src], x_t[tgt], edge_attr, u.expand(E, -1)], dim=-1)
+        h = torch.cat([x_s[src], x_t[tgt], edge_attr, x_u.expand(E,-1)], dim=-1)
         return self.norm(super().forward(h))
 
-class SourceModel(Module):
-    def __init__(self, lifted_dim=10, normed=True):
-        super(SourceModel, self).__init__()
-        message_dim_1 = 2 * lifted_dim
-        message_dim_2 = 4 * message_dim_1 + 2 * lifted_dim
-        self.node_mlp_1 = MLP([message_dim_1, message_dim_1, message_dim_1])
-        self.node_mlp_2 = MLP([message_dim_2, message_dim_2, lifted_dim])
-        self.norm = BatchNorm1d(lifted_dim) if normed else lambda x: x
 
-    def forward(self, x_s, x_t, edge_index, edge_attr, u):
+class SourceModel(torch.nn.Module):
+    """
+    Source-node update: aggregates incoming edge messages (with statistics)
+    and updates source-node embeddings.
+    """
+    def __init__(self, lifted_dim: int) -> None:
+        super().__init__()
+        message_dim = 2 * lifted_dim
+        self.message_mlp = Sequential(
+            Linear(message_dim, message_dim),
+            LeakyReLU(negative_slope=cfg.leaky_slope),
+            Linear(message_dim, message_dim)
+        )
+        update_dim = 4 * message_dim + 2 * lifted_dim
+        self.update_mlp = Sequential(
+            Linear(update_dim, update_dim),
+            LeakyReLU(negative_slope=cfg.leaky_slope),
+            Linear(update_dim, lifted_dim)
+        )
+        self.norm = BatchNorm1d(lifted_dim)
+
+    def forward(self, x_s: Tensor, x_t: Tensor, edge_index: Tensor, 
+                edge_attr: Tensor, x_u: Tensor) -> Tensor:
+        """
+        TODO.
+        """
+        # Aggregate messages and compute statistical moments. 
         src, tgt = edge_index
-        in_msg = torch.cat([x_t[tgt], edge_attr], dim=1)
-        out_msg = self.node_mlp_1(in_msg)
+        msg = torch.cat([x_t[tgt], edge_attr], dim=1)
+        msg = self.message_mlp(msg)
+        mean = scatter_mean(msg, src, dim=0, dim_size=x_s.size(0))
+        var = F.leaky_relu(scatter_mean(msg**2, src, dim=0, dim_size=x_s.size(0)) - mean**2)
+        skew = scatter_mean((msg - mean[src])**3, src, dim=0, dim_size=x_s.size(0)) / std**3
+        kurt = scatter_mean((msg - mean[src])**4, src, dim=0, dim_size=x_s.size(0)) / std**4
 
-        # aggregate incoming message statistics
-        mean = scatter(msg, src, dim=0, dim_size=x_s.size(0), reduce='mean')
-        var = leaky_relu(scatter(msg**2, src, dim=0, dim_size=x_s.size(0), reduce='mean') - mean**2)
+        # Zero out undefined values. 
+        mean = torch.nan_to_num(mean, nan=0.0)
+        var = torch.nan_to_num(var,  nan=0.0)
         std = torch.sqrt(var + 1e-6)
         skew = torch.nan_to_num(skew, nan=0.0)
         kurt = torch.nan_to_num(kurt, nan=0.0)
 
-        h_cat = torch.cat([x_s, mean, std, skew, kurt, u.expand(len(x_s), -1)], dim=-1)
-        return self.norm(self.node_mlp_2(h_cat))
+        h = torch.cat([x_s, mean, std, skew, kurt, x_u.expand(len(x_s), -1)], dim=-1)
+        return self.norm(self.update_mlp(h))
+
 
 class TargetModel(Module):
-    def __init__(self, lifted_dim=10, normed=True):
-        super(TargetModel, self).__init__()
-        message_dim_1 = 2 * lifted_dim
-        message_dim_2 = 4 * lifted_dimd
-        self.node_mlp_1 = MLP([message_dim_1, message_dim_1, message_dim_1])
-        self.node_mlp_2 = MLP([message_dim_2, message_dim_2, lifted_dim])
-        self.norm = BatchNorm1d(lifted_dim) if normed else lambda x: x
+    """
+    Target-node update: sums incoming edge messages and updates target-node embeddings.
+    """
+    def __init__(self, lifted_dim: int) -> None:
+        super().__init__()
+        message_dim = 2 * lifted_dim
+        self.message_mlp = Sequential(
+            Linear(message_dim, message_dim),
+            LeakyReLU(negative_slope=cfg.leaky_slope),
+            Linear(message_dim, message_dim)
+        )
+        update_dim = 4 * lifted_dim
+        self.update_mlp = Sequential(
+            Linear(update_dim, update_dim), 
+            LeakyReLU(negative_slope=cfg.leaky_slope),
+            Linear(update_dim, lifted_dim)
+        )
+        self.norm = BatchNorm1d(lifted_dim)
 
-    def forward(self, x_s, x_t, edge_index, edge_attr, u):
+
+    def forward(self, x_s: Tensor, x_t: Tensor, edge_index: Tensor, 
+                edge_attr: Tensor, x_u: Tensor) -> Tensor:
+        """
+        TODO. 
+        """
         src, tgt = edge_index
-        in_msg = torch.cat([x_s[src], edge_attr], dim=1)
-        out_msg = self.node_mlp_1(in_msg)
-        aggregation = scatter(msg, tgt, dim=0, dim_size=x_t.size(0), reduce='sum')
-        h_cat = torch.cat([x_t, aggregation, u.expand(len(x_t), -1)], dim=-1)
-        return self.norm(self.node_mlp_2(h_cat))
+        msg = torch.cat([x_s[src], edge_attr], dim=1)
+        msg = self.message_mlp(msg)
+        agg = scatter_add(msg, tgt, dim=0, dim_size=x_t.size(0))
+        h_cat = torch.cat([x_t, agg, x_u.expand(len(x_t),-1)], dim=-1)
+        return self.norm(self.update_mlp(h_cat))
 
-class GlobalModel(MLP):
-    def __init__(self, lifted_dim=10, normed=True):
+
+class GlobalModel(Sequential):
+    """
+    Graph-level update: pools node embeddings to update global features.
+    """
+    def __init__(self, lifted_dim: int) -> None:
         message_dim = 3 * lifted_dim
-        super(GlobalModel, self).__init__([message_dim, message_dim, lifted_dim])
-        self.norm = RMSNorm(lifted_dim) if normed else lambda x: x
+        super().__init__(
+            Linear(message_dim, message_dim), 
+            LeakyReLU(negative_slope=cfg.leaky_slope),
+            Linear(message_dim, lifted_dim)
+        )
+        self.norm = RMSNorm(lifted_dim)
 
-    def forward(self, x_s, x_t, edge_index, edge_attr, u):
+    def forward(self, x_s: Tensor, x_t: Tensor, edge_index: Tensor, 
+                edge_attr: Tensor, x_u: Tensor) -> Tensor:
+        """
+        TODO. 
+        """
         s_mean = x_s.mean(dim=0, keepdim=True)
         t_mean = x_t.mean(dim=0, keepdim=True)
-        h_cat = torch.cat([u, s_mean, t_mean], dim=-1)
-        return self.norm(super().forward(h_cat))
+        h = torch.cat([x_u, s_mean, t_mean], dim=-1)
+        return self.norm(super().forward(h))
+
 
 class Block(Module):
-    def __init__(self, lifted_dim=10, normed=True):
-        super(Block, self).__init__()
-        self.edge_model = EdgeModel(lifted_dim, normed=normed)
-        self.source_model = SourceModel(lifted_dim, normed=normed)
-        self.target_model = TargetModel(lifted_dim, normed=normed)
-        self.global_model = GlobalModel(lifted_dim, normed=normed)
+    """
+    A single MetaLayer block combining edge, source-node, target-node,
+    and global update modules.
+    """
+    def __init__(self, lifted_src_dim: int, lifted_tgt_dim: int, 
+                 lifted_edge_dim: int, global_dim: int) -> None:
+        super().__init__()
+        self.src_model = SourceModel(lifted_src_dim)
+        self.tgt_model = TargetModel(lifted_tgt_dim)
+        self.edge_model = EdgeModel(lifted_edge_dim)
+        self.global_model = GlobalModel(global_dim)
 
-    def forward(self, edge_index, x_s, x_t, x_e, x_u):
-        x_e = self.edge_model(x_s, x_t, edge_index, x_e, x_u)
-        x_s = self.source_model(x_s, x_t, edge_index, x_e, x_u)
-        x_t = self.target_model(x_s, x_t, edge_index, x_e, x_u)
-        x_u = self.global_model(x_s, x_t, edge_index, x_e, x_u)
-        return edge_index, x_s, x_t, x_e, x_u
+    def forward(self, x_s: Tensor, x_t: Tensor, edge_index: Tensor, 
+                edge_attr: Tensor, x_u: Tensor) -> Tensor:
+        """
+        Sequentially applies: edge -> source -> target -> global updates.
+        """
+        edge_attr = self.edge_model(x_s, x_t, edge_index, edge_attr, x_u)
+        x_s = self.src_model(x_s, x_t, edge_index, edge_attr, x_u)
+        x_t = self.tgt_model(x_s, x_t, edge_index, edge_attr, x_u)
+        x_u = self.global_model(x_s, x_t, edge_index, edge_attr, x_u)
+        return x_s, x_t, edge_index, edge_attr, x_u
 
-class MPNN(Module):
-    def __init__(self, num_blocks=4, lifted_dim=16, decoder_dim=num_galaxies, source_dim=1, target_dim=1, normed=True):
-        super(MPNN, self).__init__()
-        self.source_encoder = MLP(source_dim, lifted_dim, lifted_dim)
-        self.target_encoder = MLP(target_dim, lifted_dim, lifted_dim)
-        self.message_blocks = Sequential(*(Block(lifted_dim, normed=normed) for _ in range(num_blocks)))
-        self.edge_decoder = MLP(lifted_dim, lifted_dim, 1)
-        self.source_decoder = MLP(target_dim, lifted_dim, lifted_dim)
+class GraphNetwork(Module):
+    """
+    Full Message-Passing Neural Network stacking multiple MetaLayer-style blocks 
+    to predict a discrete time value per edge via a differentiable rounding scheme.
+    """
+    def __init__(self, num_blocks: int, src_dim: int, tgt_dim: int, 
+                 edge_dim: int, lifted_src_dim: int, lifted_tgt_dim: int, 
+                 lifted_edge_dim: int, global_dim: int) -> None:
+        super().__init__()
 
-    def forward(self, graph):
-        x_s = graph.x_s
-        x_t = graph.x_t
-        edge_index = graph.edge_index
-        x_e = graph.x_e
-        x_u = graph.x_u
+        # Encode node features into higher-dimensional representation.
+        self.src_encoder = Sequential(
+            Linear(src_dim, lifted_src_dim),
+            LeakyReLU(negative_slope=cfg.leaky_slope),
+            Linear(lifted_src_dim, lifted_src_dim)
+        )
+        self.tgt_encoder = Sequential(
+            Linear(tgt_dim, lifted_tgt_dim), 
+            LeakyReLU(negative_slope=cfg.leaky_slope),
+            Linear(lifted_tgt_dim, lifted_tgt_dim)
+        )
+        self.edge_encoder = Sequential(
+            Linear(edge_dim, lifted_edge_dim),
+            LeakyReLU(negative_slope=cfg.leaky_slope),
+            Linear(lifted_edge_dim, lifted_edge_dim)
+        )
 
-        x_s = self.source_encoder(x_s)
-        x_t = self.target_encoder(x_t)
+        # Apply several rounds of message-passing blocks. 
+        self.msg_pass_blocks = Sequential(*(Block(
+            lifted_src_dim, lifted_tgt_dim, lifted_edge_dim, global_dim
+        ) for _ in range(num_blocks)))
 
-        _, x_s, x_t, x_e, x_u = self.message_blocks(edge_index, x_s, x_t, x_e, x_u)
+        # Decode node features into original-dimension representations. 
+        self.src_decoder = Sequential(
+            Linear(lifted_src_dim, lifted_src_dim), 
+            LeakyReLU(negative_slope=cfg.leaky_slope),
+            Linear(lifted_src_dim, src_dim)
+        )
+        self.tgt_decoder = Sequential(
+            Linear(lifted_tgt_dim, lifted_tgt_dim), 
+            LeakyReLU(negative_slope=cfg.leaky_slope),
+            Linear(lifted_tgt_dim, tgt_dim)
+        )
+        self.edge_decoder = Sequential(
+            Linear(lifted_edge_dim, lifted_edge_dim), 
+            LeakyReLU(negative_slope=cfg.leaky_slope),
+            Linear(lifted_edge_dim, cfg.total_exposures)
+        )
 
-        return BipartiteData(edge_index, x_s, x_t, x_e, x_u)
+    def forward(self, data: HeteroData) -> HeteroData:
+        """
+        Forward pass through MetaLayer-style message passing blocks.
+        """
+        x_s = data['src'].x
+        x_t = data['tgt'].x
+        edge_index = data['src', 'to', 'tgt'].edge_index
+        edge_attr = data['src', 'to', 'tgt'].edge_attr
+        x_u = data['global'].x
 
-    def edge_prediction(self, x_e, scale=1):
-        pred = self.edge_decoder(x_e)
-        pred = softplus(pred) * scale
-        return pred
+        # Pass bipartite nodes through encoders. 
+        x_s = self.src_encoder(x_s)
+        x_t = self.tgt_encoder(x_t)
 
-    def node_prediction(self, x_s, scale=1):
-        pred = self.source_decoder(x_s)
-        time = torch.softmax(pred, dim=-1) * scale
-        return time
+        # Apply several rounds of MetaLayer-style message passing on graph. 
+        x_s, x_t, (src, tgt), edge_attr, x_u = self.msg_pass_blocks(
+            x_s, x_t, edge_index, edge_attr, x_u
+        )
+
+        data['src'].x = self.src_decoder(x_s)
+        data['tgt'].x = self.tgt_decoder(x_t)
+        data['src', 'to', 'tgt'].edge_attr = scatter_softmax(
+            self.edge_decoder(edge_attr), src, dim=0
+        )
+        data['global'].x = x_u
+
+        return data
