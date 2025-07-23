@@ -12,6 +12,19 @@ class BipartiteData(HeteroData):
     """
     def __init__(self, num_src: int, num_tgt: int, class_info: Tensor, 
                 prob_edges: Tensor, seed: int = None) -> HeteroData:
+        """
+        Constructs bipartite graph with stochastic node features. 
+
+        Args: 
+            num_src:    number of source nodes. 
+            num_tgt:    number of target nodes. 
+            class_info: (M, 2) tensor, where M is number of distinct classes. 
+                        First column is time requirement per class.
+                        Second column is number of galaxies per class. 
+            prob_edges: probability vector. ith element denotes the (i.i.d.) 
+                        probability that any target node has i edges. 
+            seed:       controls random output. 
+        """
         super().__init__()
         if seed is not None: 
             torch.manual_seed(seed)
