@@ -1,4 +1,4 @@
-# Bipartite Graph Scheduling Prediction
+# Neural Message Passing for Galaxy Evolution
 
 This repo implements a deep learning pipeline to predict connectivity properties in bipartite graphs using PyTorch. It is designed to solve the allocation problem which the Prime Focus Spectrograph faces: a high-dimensional combinatorial optimization between fibers on the PFS telescope and galaxies in its fields of observation. 
 
