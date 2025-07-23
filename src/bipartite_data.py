@@ -23,9 +23,9 @@ class BipartiteData(HeteroData):
     """
     def __init__(self) -> None:
         super().__init__()
-        self['edge_rank'] = torch.empty()
-        self['class_labels'] = torch.empty()
-        self['class_info'] = torch.empty()
+        self['edge_rank'] = torch.empty(0)
+        self['class_labels'] = torch.empty(0)
+        self['class_info'] = torch.empty(0)
 
     def construct(self, num_src: int, num_tgt: int, class_info: Tensor, 
                 prob_edges: Tensor, device: device = None, 
