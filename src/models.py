@@ -6,9 +6,10 @@ from torch_geometric.data import HeteroData
 from torch_scatter import scatter_add, scatter_mean, scatter_softmax
 import config as cfg
 
+
 class EdgeModel(Sequential):
     """
-    TODO. 
+    Small MLP to learn edge embeddings. 
     """
     def __init__(self, lifted_dim: int) -> None:
         message_dim = 4 * lifted_dim
@@ -51,9 +52,9 @@ class SourceModel(torch.nn.Module):
     def forward(self, x_s: Tensor, x_t: Tensor, edge_index: Tensor, 
                 edge_attr: Tensor, x_u: Tensor) -> Tensor:
         """
-        TODO.
+        Aggregates statistical data from target nodes and edges. 
         """
-        # Aggregate messages and compute statistical moments. 
+        # Compute statistical moments. 
         src, tgt = edge_index
         msg = torch.cat([x_t[tgt], edge_attr], dim=1)
         msg = self.message_mlp(msg)
@@ -97,7 +98,7 @@ class TargetModel(Module):
     def forward(self, x_s: Tensor, x_t: Tensor, edge_index: Tensor, 
                 edge_attr: Tensor, x_u: Tensor) -> Tensor:
         """
-        TODO. 
+        Aggregates data from source nodes and edges. 
         """
         src, tgt = edge_index
         msg = torch.cat([x_s[src], edge_attr], dim=1)
@@ -123,11 +124,11 @@ class GlobalModel(Sequential):
     def forward(self, x_s: Tensor, x_t: Tensor, edge_index: Tensor, 
                 edge_attr: Tensor, x_u: Tensor) -> Tensor:
         """
-        TODO. 
+        Graph-level averaging from source and target nodes. 
         """
-        s_mean = x_s.mean(dim=0, keepdim=True)
-        t_mean = x_t.mean(dim=0, keepdim=True)
-        h = torch.cat([x_u, s_mean, t_mean], dim=-1)
+        src_mean = x_s.mean(dim=0, keepdim=True)
+        tgt_mean = x_t.mean(dim=0, keepdim=True)
+        h = torch.cat([x_u, src_mean, tgt_mean], dim=-1)
         return self.norm(super().forward(h))
 
 
@@ -154,6 +155,7 @@ class Block(Module):
         x_t = self.tgt_model(x_s, x_t, edge_index, edge_attr, x_u)
         x_u = self.global_model(x_s, x_t, edge_index, edge_attr, x_u)
         return x_s, x_t, edge_index, edge_attr, x_u
+
 
 class GraphNetwork(Module):
     """
