@@ -1,21 +1,39 @@
 import torch
 import numpy as np
-import matploblit.pyplot as plt
+import matplotlib.pyplot as plt
 from torch_scatter import scatter
-from model import MPNN, BipartiteData
-from config import *
+from argparse import ArgumentParser
+from os.path import join
 
-def soft_floor(x, sharpness=20, noiselevel=0.3):
-    noise = noiselevel * (torch.rand_like(x) - 0.5)
-    x = x + noise
-    sharpness = x.new_tensor(sharpness)
-    pi = x.new_tensor(np.pi)
-    r = torch.where(sharpness == 0, torch.tensor(0.0, device=x.device), torch.exp(-1/sharpness))
-    return x + 1 / pi * (torch.arctan(r * torch.sin(2 * pi * x) / (1 - r * torch.cos(2 * pi * x))) - torch.arctan(r / (torch.ones_like(r) - r)))
+from bipartite_data import BipartiteData
+import config as cfg
 
-def loss(graph, galaxy_info, penalties, sharpness=0.5, finaloutput=False):
-    src, tgt = graph.edge_index
-    galaxy_classes = galaxy_info[:,0] # first index will be class number
-    class_counts = scatter(galaxy_classes, torch.arange(NUM_CLASSES), dim_size=NUM_CLASSES, reduce='sum')
-    time_pred = MPNN
+def parse_args():
+    parser = ArgumentParser(description="Train bipartite graph & optionally visualize.")
+    parser.add_argument("--visualize", type=lambda x: (str(x).lower() == "true"), 
+                        default=False, help="Toggle visualization (True/False)")
+    return parser.parse_args()
 
+def main(args): 
+    # Construct and save bipartite graph. 
+    class_info = np.loadtxt(join(cfg.data_dir, cfg.class_file), delimiter=',')
+    class_info = torch.tensor(class_info)
+    prob_edges = torch.tensor([0.0, 0.65, 0.3, 0.05])
+    data = BipartiteData(num_src=cfg.num_fibers, 
+                          num_tgt=int(cfg.num_galaxies/cfg.num_fields), 
+                          class_info=class_info, 
+                          prob_edges=prob_edges, 
+                          seed=cfg.seed)
+    torch.save(data, join(cfg.data_dir, cfg.data_file))
+
+    # Visualize bipartite graph via 2D positions.
+    if args.visualize:
+        data.visualize(max_edges=50_000, 
+                        edge_alpha=1.0, 
+                        src_size=30, 
+                        tgt_size=10, 
+                        figsize=(16,16))
+
+if __name__ == '__main__':
+    args = parse_args()
+    main(args)
