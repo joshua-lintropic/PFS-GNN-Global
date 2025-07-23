@@ -14,7 +14,7 @@ figures_dir = '../figures/'
 
 # load and save points 
 class_file = 'class_info.csv'
-data_file = 'bipartite_graph.pt'
+data_file = 'bipartite_data.pt'
 viz_file = 'bipartite_graph.png'
 checkpoint_file = 'model_gnn_dev.pt'
 pretrained_file = 'model_gnn_core.pt'

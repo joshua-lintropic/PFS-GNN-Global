@@ -4,6 +4,8 @@ from torch.nn import Linear, LeakyReLU, BatchNorm1d, RMSNorm, Sequential, Module
 import torch.nn.functional as F
 from torch_geometric.data import HeteroData
 from torch_scatter import scatter_add, scatter_mean, scatter_softmax
+
+from bipartite_data import BipartiteData
 import config as cfg
 
 
@@ -206,7 +208,7 @@ class GraphNetwork(Module):
             Linear(lifted_edge_dim, cfg.total_exposures)
         )
 
-    def forward(self, data: HeteroData) -> HeteroData:
+    def forward(self, data: BipartiteData) -> BipartiteData:
         """
         Forward pass through MetaLayer-style message passing blocks.
         """
