@@ -23,7 +23,9 @@ class BipartiteData(HeteroData):
     """
     def __init__(self) -> None:
         super().__init__()
-        self.edge_rank = []
+        self['edge_rank'] = torch.empty()
+        self['class_labels'] = torch.empty()
+        self['class_info'] = torch.empty()
 
     def construct(self, num_src: int, num_tgt: int, class_info: Tensor, 
                 prob_edges: Tensor, device: device = None, 
@@ -137,7 +139,9 @@ class BipartiteData(HeteroData):
         self['src', 'to', 'tgt'].edge_attr = edge_attr
         self['global'].x = global_x
 
-        self.edge_rank = edge_rank
+        self['edge_rank'] = torch.tensor(edge_rank, dtype=torch.long)
+        self['class_labels'] = labels.to(torch.long)
+        self['class_info'] = class_info
     
     def visualize(self, max_edges: int, edge_alpha: float, src_size: int,
                   tgt_size: int, figsize: tuple, path: str) -> None:
@@ -155,7 +159,7 @@ class BipartiteData(HeteroData):
 
         # Sample edges if necessary.
         edge_index = self['src', 'to', 'tgt'].edge_index.cpu().numpy()
-        edge_rank = np.array(self.edge_rank, dtype=int)
+        edge_rank = self['edge_rank'].detach().cpu().numpy().astype(int)
         n_edges = edge_index.shape[1]
         if n_edges > max_edges:
             print(f'{n_edges} edges is too dense, truncating to {max_edges}')

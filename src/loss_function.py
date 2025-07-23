@@ -1,8 +1,12 @@
 import torch
-from torch import Tensor
+from torch import Tensor, LongTensor
+import torch.nn.functional as F
 from torch_geometric.data import HeteroData
-from torch_scatter import scatter
+from torch_scatter import scatter_sum, scatter_max 
 import numpy as np
+
+from bipartite_data import BipartiteData
+import config as cfg
 
 
 def soft_round(x: Tensor, sharpness: float, 
@@ -47,10 +51,77 @@ def soft_floor(x: Tensor, sharpness: float,
     return x + 1/pi * torch.arctan(num/den) - torch.arctan(r/(1-r))
 
 
-def compute_loss(data: HeteroData, class_info: Tensor, sharp: float):
+def discretize(edge_attr: Tensor, src: LongTensor) -> Tensor: 
+    """
+    Hard selection: for each source node s and each column j, pick the 
+    edge e with max edge_attr[e,j] (softmax beforehand) and set 
+    mask[e,j] = 1, else 0.
+
+    Args: 
+        edge_attr:  Values in [0,1], normalized by softmax per (s,j).  
+        src:        src[e] is the source-node of edge e. 
+
+    Returns: 
+        One-hot encoding per (s, j). Same shape as edge_attr.
+    """
+    _, edge_dim = edge_attr.shape
+    device = edge_attr.device
+
+    num_src = int(src.max().item() + 1) 
+    _, argmax = scatter_max(edge_attr, src, dim=0, dim_size=num_src)
+
+    flat_s = argmax.reshape(-1)
+    flat_j = torch.arange(edge_dim, device=device)\
+        .unsqueeze(0).expand(num_src, edge_dim).reshape(-1)
+    mask = torch.zeros_like(edge_attr)
+    mask[flat_s, flat_j] = 1.0
+    return mask
+
+
+def straight_through_estimate(edge_attr: Tensor, src: LongTensor) -> Tensor: 
+    """
+    Apply a Straight-Through Estimator to backpropagate binary decisions. 
+
+    Args: 
+        edge_attr:  Values in [0,1], normalized by softmax per (s,j).  
+        src:        src[e] is the source-node of edge e. 
+    
+    Returns: 
+        Discretized one-hot selection with identity function gradients. 
+    """
+    discrete_mask = discretize(edge_attr, src)
+    return discrete_mask.detach() - edge_attr.detach() + edge_attr
+
+
+def compute_loss(data: BipartiteData, sharpness: float):
     """
     Sub-differentiable loss function for the graph network. 
     """
     src, tgt = data['src', 'to', 'tgt'].edge_index
+    edge_attr = data['src', 'to', 'tgt'].edge_attr
+    galaxy_requirement = F.leaky_relu(
+        data['tgt'].x[:,2] - data['tgt'].x[:,3],
+        negative_slope=cfg.leaky_slope
+    )
 
-    # TODO: Compute the amount of time provided to each galaxy.
+    # Compute the fraction of galaxies completed in each class.
+    edge_attr = straight_through_estimate(edge_attr, src)
+    galaxy_completed = scatter_sum(
+        edge_attr, tgt, dim=0, dim_size=data['tgt'].x.size(0)
+    ).sum(dim=1) / galaxy_requirement
+    galaxy_completed = soft_floor(galaxy_completed, sharpness=sharpness)
+    class_counts = scatter_sum(galaxy_completed, data.class_labels)
+    class_completion = class_counts / data['class_info'][:,1]
+    min_completion = class_completion.min()
+
+    # Compute the overtime by each source node. 
+    fiber_overtime = scatter_sum(
+        edge_attr, src, dim=0, dim_size=data['src'].x.size(0)
+    )
+    fiber_overtime = F.leaky_relu(
+        fiber_overtime - torch.ones_like(fiber_overtime), 
+        negative_slope=cfg.leaky_slope
+    )**2
+
+    return cfg.min_completion_weight * min_completion + \
+        cfg.fiber_overtime_weight * fiber_overtime

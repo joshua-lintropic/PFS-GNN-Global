@@ -33,10 +33,8 @@ num_epochs = 10_000
 lifted_dim = 10
 learning_rate = 5e-4
 leaky_slope = 0.1
-p_class = 0.1
-p_fiber = 0.1
-w_utils = 2000.0
-w_var = 1.0
+min_completion_weight = 10.0
+fiber_overtime_weight = 0.1
 sharps = (0.0, 100.0)
 min_sharp = 50.0
 
