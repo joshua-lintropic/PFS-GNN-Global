@@ -21,9 +21,9 @@ For the class-based bipartite model, see [joshua-lintropic/PFS-Class-Optimizer](
     pip install -r requirements.txt
     ```
 
-2. Train the model:
+2. Construct the data:
     ```bash
-    python train.py --visualize=False
+    python bipartite_data.py --save=True --visualize=False
     ```
 
 ## ️ Configuration

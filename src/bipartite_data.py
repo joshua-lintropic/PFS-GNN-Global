@@ -3,15 +3,31 @@ from torch import Tensor, device
 from torch_geometric.data import HeteroData
 import matplotlib.pyplot as plt
 import numpy as np
+from argparse import ArgumentParser
 from os.path import join
 import config as cfg
+
+
+def parse_args():
+    parser = ArgumentParser(description="Train bipartite graph & optionally visualize.")
+    parser.add_argument('--save', type=lambda x: (str(x).lower() == 'true'), 
+                        default=False, help='Toggle data saving (True/False)')
+    parser.add_argument('--visualize', type=lambda x: (str(x).lower() == 'true'), 
+                        default=False, help='Toggle visualization (True/False)')
+    return parser.parse_args()
+
 
 class BipartiteData(HeteroData):
     """
     Heterogeneous bipartite graph modeling PFS galaxy evolution exposures. 
     """
-    def __init__(self, num_src: int, num_tgt: int, class_info: Tensor, 
-                prob_edges: Tensor, device: device, seed: int = None) -> HeteroData:
+    def __init__(self) -> None:
+        super().__init__()
+        self.edge_rank = []
+
+    def construct(self, num_src: int, num_tgt: int, class_info: Tensor, 
+                prob_edges: Tensor, device: device = None, 
+                seed: int = None) -> HeteroData:
         """
         Constructs bipartite graph with stochastic node features. 
 
@@ -25,7 +41,6 @@ class BipartiteData(HeteroData):
                         probability that any target node has i edges. 
             seed:       controls random output. 
         """
-        super().__init__()
         if seed is not None: 
             torch.manual_seed(seed)
 
@@ -125,7 +140,7 @@ class BipartiteData(HeteroData):
         self.edge_rank = edge_rank
     
     def visualize(self, max_edges: int, edge_alpha: float, src_size: int,
-                  tgt_size: int, figsize: tuple) -> None:
+                  tgt_size: int, figsize: tuple, path: str) -> None:
         """
         Scatter-plot src and tgt nodes at their 2D positions and draw (sampled) edges.
 
@@ -192,6 +207,29 @@ class BipartiteData(HeteroData):
                     for r in unique_ranks]
         ax.legend(edge_handles, edge_labels, title='kth nearest neighbor', 
                 loc='upper left', fontsize='small')
-        ax.set_title('PFS Fiber-Galaxy Spatial Visualization with Connectivity')
+        ax.set_title('PFS Fiber-Galaxy Spatial Visualization with Connectivity', fontsize=20)
         plt.tight_layout()
-        plt.savefig(join(cfg.data_dir, cfg.viz_file), dpi=cfg.dpi)
+        plt.savefig(path, dpi=cfg.dpi)
+
+
+def main(args): 
+    # Construct and save bipartite graph. 
+    if args.save: 
+        class_info = np.loadtxt(join(cfg.data_dir, cfg.class_file), delimiter=',')
+        class_info = torch.tensor(class_info)
+        prob_edges = torch.tensor([0.0, 0.65, 0.3, 0.05])
+        data = BipartiteData()
+        data.construct(num_src=cfg.num_fibers, num_tgt=int(cfg.num_galaxies/cfg.num_fields), 
+                    class_info=class_info, prob_edges=prob_edges, device=cfg.device, 
+                    seed=cfg.seed)
+        torch.save(data, join(cfg.data_dir, cfg.data_file))
+    
+    # Visualize bipartite graph via 2D positions.
+    if args.visualize:
+        data.visualize(max_edges=50_000, edge_alpha=1.0, src_size=30, tgt_size=10, 
+                       figsize=(16,16), path=join(cfg.data_dir, cfg.viz_file))
+
+
+if __name__ == '__main__': 
+    args = parse_args()
+    main(args)
