@@ -189,15 +189,15 @@ def main():
     class_info = np.loadtxt(join(cfg.data_dir, cfg.class_file), delimiter=',')
     class_info = torch.tensor(class_info)
     prob_edges = torch.tensor([0.0, 0.65, 0.3, 0.05])
-    graph = BipartiteData(num_src=cfg.num_fibers, 
+    data = BipartiteData(num_src=cfg.num_fibers, 
                           num_tgt=int(cfg.num_galaxies/cfg.num_fields), 
                           class_info=class_info, 
                           prob_edges=prob_edges, 
                           seed=cfg.seed)
-    torch.save(graph, join(cfg.data_dir, cfg.data_file))
+    torch.save(data, join(cfg.data_dir, cfg.data_file))
 
     # Visualize bipartite graph via 2D positions.
-    graph.visualize(max_edges=50_000, 
+    data.visualize(max_edges=50_000, 
                     edge_alpha=1.0, 
                     src_size=30, 
                     tgt_size=10, 
