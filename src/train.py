@@ -1,6 +1,7 @@
 import torch
 from torch import Tensor
-from torch.optim import Adam
+from torch.cuda.amp import autocast, GradScaler
+from torch.optim import AdamW
 from bipartite_data import BipartiteData
 from models import GraphNetwork
 import os
@@ -11,23 +12,21 @@ from loss_function import compute_loss, compute_upper_bound
 import config as cfg
 
 
-def to_scalar(x): 
-    return x.item() if isinstance(x, Tensor) else x
-
-
 def train_step(data: BipartiteData, model: GraphNetwork, 
-               optimizer: Adam, epoch: int) -> None: 
+               optimizer: AdamW, epoch: int, scaler: GradScaler) -> None: 
     # Backpropagate the loss function. 
     optimizer.zero_grad()
-    data = model(data)
     try: 
         param = (epoch - 1) / (cfg.num_epochs - 1) 
     except ZeroDivisionError: 
         param = 0
     sharpness = cfg.sharps[0] + param * (cfg.sharps[1] - cfg.sharps[0])
-    loss, objective, observations = compute_loss(data, sharpness)
-    loss.backward()
-    optimizer.step()
+    with autocast(device_type=cfg.device.type):
+        data = model(data)
+        loss, objective, observations = compute_loss(data, sharpness)
+    scaler.scale(loss).backward()
+    scaler.step(optimizer)
+    scaler.update()
 
     # Detach for the next iteration. 
     data['src'].x = data['src'].x.detach()
@@ -43,7 +42,7 @@ def train_step(data: BipartiteData, model: GraphNetwork,
     data.optimal['history'][1][epoch] = objective_cpu
 
     # Checkpoint best-performing model. 
-    if to_scalar(objective) >= data.optimal['objective']:
+    if objective_cpu >= data.optimal['objective']:
         data.optimal['loss'] = loss_cpu
         data.optimal['objective'] = objective_cpu
         data.optimal['epoch'] = epoch
@@ -72,12 +71,13 @@ def train():
     with torch.no_grad():
         data = model.encode(data)
     model.train()
-    optimizer = Adam(model.parameters(), lr=cfg.learning_rate)
+    optimizer = AdamW(model.parameters(), lr=cfg.learning_rate)
 
     # Begin training loop. 
+    scaler = GradScaler()
     desc = 'Training [Neural Message Passing for Galaxy Evolution]'
     for epoch in trange(1, cfg.num_epochs + 1, desc=desc): 
-        data = train_step(data, model, optimizer, epoch)
+        data = train_step(data, model, optimizer, epoch, scaler)
 
     return data, model
     
