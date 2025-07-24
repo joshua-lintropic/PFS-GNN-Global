@@ -83,7 +83,7 @@ class BipartiteData(HeteroData):
         # Label the galaxies according to their class number. 
         # Resulting `labels` has size (num_tgt, 1). 
         labels = torch.cat([
-            torch.full((int(count / cfg.num_fields),), float(i+1), device=device)
+            torch.full((int(count / cfg.num_fields),), float(i), device=device)
             for i, count in enumerate(class_info[:,1])
         ]).unsqueeze(1)
 
@@ -140,7 +140,7 @@ class BipartiteData(HeteroData):
             raise ValueError('No edges were generated!')
         
         # === Global node feature construction. === 
-        global_x = torch.rand((cfg.num_blocks, cfg.global_dim), device=device)
+        global_x = torch.rand((1, cfg.global_dim), device=device)
         
         # === Build heterogeneous graph. === 
         self['src'].x = src_nodes

@@ -32,7 +32,7 @@ annulus = (1e-6, 1e-1)
 # model specification
 lifted_src_dim = 10
 lifted_tgt_dim = 10
-lifted_edge_dim = 100
+lifted_edge_dim = 50
 global_dim = 10
 
 # hyperparameters

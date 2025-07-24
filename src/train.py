@@ -18,28 +18,36 @@ def to_scalar(x):
 def train_step(data: BipartiteData, model: GraphNetwork, 
                optimizer: Adam, epoch: int) -> None: 
     # Backpropagate the loss function. 
-    model.zero_grad()
+    optimizer.zero_grad()
     data = model(data)
     try: 
         param = (epoch - 1) / (cfg.num_epochs - 1) 
     except ZeroDivisionError: 
         param = 0
     sharpness = cfg.sharps[0]*(1-param) + cfg.sharps[1]*param
-    loss, objective = compute_loss(data, sharpness)
+    loss, objective, observations = compute_loss(data, sharpness)
     loss.backward()
     optimizer.step()
 
+    # Detach for the next iteration. 
+    data['src'].x = data['src'].x.detach()
+    data['tgt'].x = data['tgt'].x.detach()
+    data['src', 'to', 'tgt'].edge_attr = data['src', 'to', 'tgt']\
+        .edge_attr.detach()
+    data['global'].x = data['global'].x.detach()
+
     # Store history for analysis. 
-    data['history'][0][epoch] = loss
-    data['history'][1][epoch] = objective
+    data['history'][0][epoch] = loss.detach()
+    data['history'][1][epoch] = objective.detach()
 
     # Checkpoint best-performing model. 
     if to_scalar(objective) >= data.optimal['objective']:
-        data.optimal['loss'] = to_scalar(loss)
-        data.optimal['objective'] = to_scalar(objective)
+        data.optimal['loss'] = to_scalar(loss.detach())
+        data.optimal['objective'] = to_scalar(objective.detach())
         data.optimal['epoch'] = epoch
         if sharpness >= cfg.min_sharp:
             torch.save(join(cfg.models_dir, cfg.checkpoint_file))
+        data['plan'] = observations.detach()
     
     return data
 
@@ -58,14 +66,16 @@ def train():
         lifted_edge_dim = cfg.lifted_edge_dim, 
         global_dim = cfg.global_dim
     )
+    model = model.to(cfg.device)
     with torch.no_grad():
         data = model.encode(data)
     model.train()
+    optimizer = Adam(model.parameters(), lr=cfg.learning_rate)
 
     # Begin training loop. 
     desc = 'Training Neural Message Passing for Galaxy Evolution'
     for epoch in trange(1, cfg.num_epochs + 1, desc=desc): 
-        data = train_step(data, model, epoch)
+        data = train_step(data, model, optimizer, epoch)
 
     return data, model
     
@@ -85,7 +95,7 @@ def main():
         file.write('Optimality Ratio: {ratio}\n')
         for key, val in data.optimal:
             file.write(
-                f'{(key+':'):<{space}} @ Optimal Objective: {val}\n'
+                f'{(key+":"):<{space}} @ Optimal Objective: {val}\n'
             )
 
 if __name__ == '__main__': 

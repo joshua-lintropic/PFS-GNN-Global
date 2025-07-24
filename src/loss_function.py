@@ -119,10 +119,10 @@ def compute_loss(data: BipartiteData, sharpness: float):
     fiber_overtime = scatter_sum(
         edge_attr, src, dim=0, dim_size=data['src'].x.size(0)
     )
-    fiber_overtime = F.leaky_relu(
+    fiber_overtime = torch.sum(F.leaky_relu(
         fiber_overtime - torch.ones_like(fiber_overtime), 
         negative_slope=cfg.leaky_slope
-    )**2
+    )**2)
 
     # Compute loss and objective. 
     loss = cfg.weights['objective'] * min_completion + \
