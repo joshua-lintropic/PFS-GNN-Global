@@ -69,13 +69,13 @@ class BipartiteData(HeteroData):
         src_y = src_mod * torch.sin(src_arg)
         src_pos = torch.stack([src_x, src_y], dim=1)
 
-        # Set an inner radius. Source nodes cannot observe galaxies which are 
-        # strictly closer than the inner radius. 
-        inner_radii = torch.full((num_src, 1), cfg.annulus[0], device=device)
-
-        # Set an outer radius. Source nodes cannot observe galaxies which are 
-        # strictly further than the outer radius. 
-        outer_radii = torch.full((num_src, 1), cfg.annulus[1], device=device)
+        # Set an inner and outer radius. Source nodes cannot observe galaxies 
+        # which are outside the annulus defined by these radii. 
+        r_inner, r_outer = cfg.annulus
+        r_inner = torch.tensor(r_inner, device=device)
+        r_outer = torch.tensor(r_outer, device=device)
+        inner_radii = r_inner.expand(num_src, 1)
+        outer_radii = r_outer.expand(num_src, 1)
 
         # Combine into source nodes. Resulting size of (num_src, 4). 
         src_nodes = torch.cat([src_pos, inner_radii, outer_radii], dim=1)
@@ -113,32 +113,34 @@ class BipartiteData(HeteroData):
         tgt_nodes = torch.cat([labels, time_req, time_spent, tgt_pos, priority], dim=1)
 
         # === Edge connectivity construction. === 
-        edge_src = []
-        edge_tgt = []
-        edge_rank = []
-        for t in range(num_tgt): 
-            # Filter by distance constraints. Must be within the annulus of observation.
-            dist = torch.norm(src_pos - tgt_pos[t], dim=1)
-            valid = ((cfg.annulus[0] <= dist) & (dist <= cfg.annulus[1]))\
-                    .nonzero(as_tuple=False).squeeze()
-            if valid.numel() == 0: 
-                continue
-            # Sort valid by ascending distance, and take k nearest neighbors. 
-            valid = valid[dist[valid].argsort()]
-            k_nearest = valid[:prob_edges.size(0)]
-            n_edges = np.random.choice(np.arange(len(k_nearest)), p=prob_edges)
-            for e, s in enumerate(k_nearest):
-                if e >= n_edges: 
-                    break
-                edge_src.append(s.item())
-                edge_tgt.append(t)
-                edge_rank.append(e)
-            
-        if edge_src:
-            edge_index = torch.tensor([edge_src, edge_tgt], dtype=torch.long, device=device)
-            edge_attr = torch.rand((edge_index.size(1), cfg.total_exposures), device=device)
-        else: 
-            raise ValueError('No edges were generated!')
+        # Compute pairwise distances (vectorized). 
+        dists = torch.cdist(src_pos, tgt_pos)
+        valid = (dists >= r_inner)  & (dists <= r_outer)
+        observable = dists.clone()
+        observable[~valid] = float('inf')
+
+        # For each target, get k nearest source candidates. 
+        k = prob_edges.size(0)
+        neighbors, idx_topk = observable.topk(k, dim=0, largest=False)
+
+        # Sample number of edges per target according to prob_edges. 
+        choices = np.arange(k)
+        prob_edges_cpu = prob_edges.cpu().nump()
+        edges_per_tgt = np.random.choice(choices, size=num_tgt, p=prob_edges_cpu)
+        edges_per_tgt = torch.from_numpy(edges_per_tgt).to(device)
+
+        # Build a mask of which (rank, target) pairs to include. 
+        rank_idx = torch.arange(k, device=device).unsqueeze(1).expand(k, num_tgt)
+        mask = (rank_idx < edges_per_tgt.unsqueeze(0)) & (neighbors != float('inf'))
+
+        # Combine into edge lists. edge_pairs is shape (E, 2) holding [rank, tgt]. 
+        edge_pairs = mask.nonzero(as_tuple=False)
+        edge_rank = edge_pairs[:,0]
+        tgt_index = edge_pairs[:, 1]
+        src_index = idx_topk[edge_rank, tgt_indices]
+
+        edge_index = torch.stack([src_index, tgt_index], dim=0)
+        edge_attr = torch.rand((edge_index.size(1), cfg.total_exposures), device=cfg.device)
         
         # === Global node feature construction. === 
         global_x = torch.rand((1, cfg.global_dim), device=device)
