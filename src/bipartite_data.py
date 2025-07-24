@@ -1,5 +1,5 @@
 import torch
-from torch import Tensor, device
+from torch import Tensor
 from torch_geometric.data import HeteroData
 import matplotlib.pyplot as plt
 import math
@@ -39,8 +39,7 @@ class BipartiteData(HeteroData):
         }
 
     def construct(self, num_src: int, num_tgt: int, class_info: Tensor, 
-                prob_edges: Tensor, device: device = None, 
-                seed: int = None) -> HeteroData:
+                prob_edges: Tensor, seed: int = None) -> HeteroData:
         """
         Constructs bipartite graph with stochastic node features. 
 
@@ -62,7 +61,7 @@ class BipartiteData(HeteroData):
         # Resulting `src_pos` has size (num_src, 2). 
         golden_ratio = (1 + math.sqrt(5)) / 2
         golden_angle = 2 * math.pi * (1 - 1 / golden_ratio)
-        src_idx = torch.arange(1, num_src + 1, dtype=torch.float, device=device)
+        src_idx = torch.arange(1, num_src + 1, dtype=torch.float, device=cfg.device)
         src_mod = torch.sqrt(src_idx / num_src)
         src_arg = src_idx * golden_angle
         src_x = src_mod * torch.cos(src_arg)
@@ -72,8 +71,8 @@ class BipartiteData(HeteroData):
         # Set an inner and outer radius. Source nodes cannot observe galaxies 
         # which are outside the annulus defined by these radii. 
         r_inner, r_outer = cfg.annulus
-        r_inner = torch.tensor(r_inner, device=device)
-        r_outer = torch.tensor(r_outer, device=device)
+        r_inner = torch.tensor(r_inner, device=cfg.device)
+        r_outer = torch.tensor(r_outer, device=cfg.device)
         inner_radii = r_inner.expand(num_src, 1)
         outer_radii = r_outer.expand(num_src, 1)
 
@@ -84,30 +83,30 @@ class BipartiteData(HeteroData):
         # Label the galaxies according to their class number. 
         # Resulting `labels` has size (num_tgt, 1). 
         labels = torch.cat([
-            torch.full((int(count / cfg.num_fields),), float(i), device=device)
+            torch.full((int(count / cfg.num_fields),), float(i), device=cfg.device)
             for i, count in enumerate(class_info[:,1])
         ]).unsqueeze(1)
 
         # Required number of exposures to completion. Initialized to class values. 
         # Resulting `requirements` has size (num_tgt, 1).
         time_req = torch.cat([
-            torch.full((int(count / cfg.num_fields),), float(time_req), device=device)
+            torch.full((int(count / cfg.num_fields),), float(time_req), device=cfg.device)
             for time_req, count in class_info
         ]).unsqueeze(1)
 
         # Number of exposures already received by target nodes. Initialized to zeros.
-        time_spent = torch.zeros((num_tgt, 1), device=device)
+        time_spent = torch.zeros((num_tgt, 1), device=cfg.device)
 
         # Random positions in the unit disk. 
         # Resulting `tgt_pos` has size (num_tgt, 2). 
-        tgt_mod = torch.sqrt(torch.rand(num_tgt, device=device))
-        tgt_arg = 2 * math.pi * torch.rand(num_tgt, device=device)
+        tgt_mod = torch.sqrt(torch.rand(num_tgt, device=cfg.device))
+        tgt_arg = 2 * math.pi * torch.rand(num_tgt, device=cfg.device)
         tgt_x = tgt_mod * torch.cos(tgt_arg)
         tgt_y = tgt_mod * torch.sin(tgt_arg)
         tgt_pos = torch.stack([tgt_x, tgt_y], dim=1)
 
         # The intra-class priority of each galaxy. Sampled uniformly from [0,1). 
-        priority = torch.rand((num_tgt, 1), device=device)
+        priority = torch.rand((num_tgt, 1), device=cfg.device)
 
         # Combine into target nodes. Resulting size of (num_tgt, 6). 
         tgt_nodes = torch.cat([labels, time_req, time_spent, tgt_pos, priority], dim=1)
@@ -127,10 +126,10 @@ class BipartiteData(HeteroData):
         choices = np.arange(k)
         prob_edges_cpu = prob_edges.cpu().nump()
         edges_per_tgt = np.random.choice(choices, size=num_tgt, p=prob_edges_cpu)
-        edges_per_tgt = torch.from_numpy(edges_per_tgt).to(device)
+        edges_per_tgt = torch.from_numpy(edges_per_tgt).to(cfg.device)
 
         # Build a mask of which (rank, target) pairs to include. 
-        rank_idx = torch.arange(k, device=device).unsqueeze(1).expand(k, num_tgt)
+        rank_idx = torch.arange(k, device=cfg.device).unsqueeze(1).expand(k, num_tgt)
         mask = (rank_idx < edges_per_tgt.unsqueeze(0)) & (neighbors != float('inf'))
 
         # Combine into edge lists. edge_pairs is shape (E, 2) holding [rank, tgt]. 
@@ -143,7 +142,7 @@ class BipartiteData(HeteroData):
         edge_attr = torch.rand((edge_index.size(1), cfg.total_exposures), device=cfg.device)
         
         # === Global node feature construction. === 
-        global_x = torch.rand((1, cfg.global_dim), device=device)
+        global_x = torch.rand((1, cfg.global_dim), device=cfg.device)
         
         # === Build heterogeneous graph. === 
         self['src'].x = src_nodes
