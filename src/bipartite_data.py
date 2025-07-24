@@ -2,6 +2,7 @@ import torch
 from torch import Tensor, device
 from torch_geometric.data import HeteroData
 import matplotlib.pyplot as plt
+import math
 import numpy as np
 from argparse import ArgumentParser
 from os.path import join
@@ -28,13 +29,13 @@ class BipartiteData(HeteroData):
         self['class_info'] = torch.empty(0)
         self['time_req'] = torch.empty(0)
         self['time_spent'] = torch.empty(0)
-        self['history'] = torch.empty(0)
-        self['plan'] = torch.empty(0)
 
         self.optimal = {
             'loss': np.inf, 
             'objective': -np.inf, 
             'epoch': -1, 
+            'history': np.empty(0),
+            'plan': np.empty(0)
         }
 
     def construct(self, num_src: int, num_tgt: int, class_info: Tensor, 
@@ -59,8 +60,8 @@ class BipartiteData(HeteroData):
         # === Source node feature construction. ===
         # Uniformly distribute positions in the unit disk using Vogel's method.
         # Resulting `src_pos` has size (num_src, 2). 
-        golden_ratio = (1 + np.sqrt(5)) / 2
-        golden_angle = 2 * np.pi * (1 - 1 / golden_ratio)
+        golden_ratio = (1 + math.sqrt(5)) / 2
+        golden_angle = 2 * math.pi * (1 - 1 / golden_ratio)
         src_idx = torch.arange(1, num_src + 1, dtype=torch.float, device=device)
         src_mod = torch.sqrt(src_idx / num_src)
         src_arg = src_idx * golden_angle
@@ -100,7 +101,7 @@ class BipartiteData(HeteroData):
         # Random positions in the unit disk. 
         # Resulting `tgt_pos` has size (num_tgt, 2). 
         tgt_mod = torch.sqrt(torch.rand(num_tgt, device=device))
-        tgt_arg = 2 * np.pi * torch.rand(num_tgt, device=device)
+        tgt_arg = 2 * math.pi * torch.rand(num_tgt, device=device)
         tgt_x = tgt_mod * torch.cos(tgt_arg)
         tgt_y = tgt_mod * torch.sin(tgt_arg)
         tgt_pos = torch.stack([tgt_x, tgt_y], dim=1)
@@ -154,8 +155,9 @@ class BipartiteData(HeteroData):
         self['class_info'] = class_info
         self['time_req'] = time_req
         self['time_spent'] = time_spent
-        self['history'] = torch.zeros((cfg.num_histories, cfg.num_epochs))
-        self['plan'] = torch.zeros((num_src, num_tgt))
+
+        self.optimal['history'] = np.zeros((cfg.num_histories, cfg.num_epochs))
+        self.optimal['plan'] = np.zeros((num_src, num_tgt))
     
     def visualize(self, max_edges: int, edge_alpha: float, src_size: int,
                   tgt_size: int, figsize: tuple, path: str) -> None:

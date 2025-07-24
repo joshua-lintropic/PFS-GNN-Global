@@ -37,15 +37,17 @@ def train_step(data: BipartiteData, model: GraphNetwork,
     data['global'].x = data['global'].x.detach()
 
     # Store history for analysis. 
-    data['history'][0][epoch] = loss.detach()
-    data['history'][1][epoch] = objective.detach()
+    loss_cpu = loss.detach().cpu().numpy()
+    objective_cpu = objective.detach().cpu().numpy()
+    data.optimal['history'][0][epoch] = loss_cpu
+    data.optimal['history'][1][epoch] = objective_cpu
 
     # Checkpoint best-performing model. 
     if to_scalar(objective) >= data.optimal['objective']:
-        data.optimal['loss'] = to_scalar(loss.detach())
-        data.optimal['objective'] = to_scalar(objective.detach())
+        data.optimal['loss'] = loss_cpu
+        data.optimal['objective'] = objective_cpu
         data.optimal['epoch'] = epoch
-        data['plan'] = observations.detach()
+        data['plan'] = observations.detach().cpu().numpy()
         if sharpness >= cfg.min_sharp or epoch == 1:
             torch.save(data, os.path.join(cfg.models_dir, cfg.checkpoint_file))
     
