@@ -3,7 +3,7 @@ from torch import Tensor
 from torch.optim import Adam
 from bipartite_data import BipartiteData
 from models import GraphNetwork
-from os.path import join
+import os
 from tqdm import trange
 from datetime import datetime
 
@@ -24,7 +24,7 @@ def train_step(data: BipartiteData, model: GraphNetwork,
         param = (epoch - 1) / (cfg.num_epochs - 1) 
     except ZeroDivisionError: 
         param = 0
-    sharpness = cfg.sharps[0]*(1-param) + cfg.sharps[1]*param
+    sharpness = cfg.sharps[0] + param * (cfg.sharps[1] - cfg.sharps[0])
     loss, objective, observations = compute_loss(data, sharpness)
     loss.backward()
     optimizer.step()
@@ -45,16 +45,16 @@ def train_step(data: BipartiteData, model: GraphNetwork,
         data.optimal['loss'] = to_scalar(loss.detach())
         data.optimal['objective'] = to_scalar(objective.detach())
         data.optimal['epoch'] = epoch
-        if sharpness >= cfg.min_sharp:
-            torch.save(join(cfg.models_dir, cfg.checkpoint_file))
         data['plan'] = observations.detach()
+        if sharpness >= cfg.min_sharp or epoch == 1:
+            torch.save(data, os.path.join(cfg.models_dir, cfg.checkpoint_file))
     
     return data
 
 
 def train(): 
     # Create the message-passing network and lift the data. 
-    data = torch.load(join(cfg.data_dir, cfg.data_file), weights_only=False)
+    data = torch.load(os.path.join(cfg.data_dir, cfg.data_file), weights_only=False)
     data = data.to(cfg.device)
     model = GraphNetwork(
         num_blocks = cfg.num_blocks, 
@@ -73,7 +73,7 @@ def train():
     optimizer = Adam(model.parameters(), lr=cfg.learning_rate)
 
     # Begin training loop. 
-    desc = 'Training Neural Message Passing for Galaxy Evolution'
+    desc = 'Training [Neural Message Passing for Galaxy Evolution]'
     for epoch in trange(1, cfg.num_epochs + 1, desc=desc): 
         data = train_step(data, model, optimizer, epoch)
 
@@ -81,22 +81,27 @@ def train():
     
 
 def main(): 
+    # Create models directory if it exists. 
+    os.makedirs(cfg.models_dir, exist_ok=True)
+
     data, model = train()
     time = datetime.now()
     time = time.strftime("%B %-d, %Y @ %I:%M:%S %p")
 
-    # Write output results to log file. 
+    # Calculate relative optimality.
     space = max(len(field) for field in data.optimal.keys()) + 4
     upper_bound = compute_upper_bound(data)
     ratio = data.optimal['objective'] / upper_bound
-    with open(join(cfg.results_dir, cfg.log_file)) as file: 
+    
+    # Write to log file. 
+    os.makedirs(cfg.results_dir, exist_ok=True)
+    log_path = os.path.join(cfg.results_dir, cfg.log_file)
+    with open(log_path, 'w') as file: 
         file.write(f'TIME: {time}\n')
         file.write('Upper Bound: {upper_bound}\n')
         file.write('Optimality Ratio: {ratio}\n')
-        for key, val in data.optimal:
-            file.write(
-                f'{(key+":"):<{space}} @ Optimal Objective: {val}\n'
-            )
+        for key, val in data.optimal.items():
+            file.write(f'{(key+":"):<{space}} @ Optimal Objective: {val}\n')
 
 if __name__ == '__main__': 
     main()
