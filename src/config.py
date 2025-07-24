@@ -37,7 +37,7 @@ global_dim = 10
 
 # hyperparameters
 retrain = False
-num_epochs = 100_000
+num_epochs = 200_000
 num_histories = 2
 learning_rate = 5e-4
 leaky_slope = 0.1
