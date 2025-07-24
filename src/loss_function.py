@@ -110,7 +110,7 @@ def compute_loss(data: BipartiteData, sharpness: float):
         edge_attr, tgt, dim=0, dim_size=data['tgt'].x.size(0)
     ).sum(dim=1) / galaxy_requirement
     observations = observations.nan_to_num(nan=0.0, posinf=0.0, neginf=0.0)
-    observations = soft_floor(observations, sharpness=sharpness)
+    # observations = soft_floor(observations, sharpness=sharpness)
     class_counts = scatter_sum(observations, data['tgt'].class_labels)
     class_completion = class_counts / data['tgt'].class_info[:,1]
     min_completion = class_completion.min()

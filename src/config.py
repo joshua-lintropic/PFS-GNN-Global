@@ -29,6 +29,7 @@ num_fields = 10 # partitioning of the sky
 num_blocks = 4 # number of message-passing rounds
 total_exposures = 42 # number of observations stages
 annulus = (1e-6, 1e-1)
+prob_edges = [0.0, 0.65, 0.3, 0.05]
 
 # model specification
 lifted_src_dim = 10
