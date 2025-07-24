@@ -1,0 +1,19 @@
+Traceback (most recent call last):
+  File "/home/jl5824/.conda/envs/pfs-gnn/lib/python3.11/site-packages/torch/serialization.py", line 965, in save
+    _save(
+  File "/home/jl5824/.conda/envs/pfs-gnn/lib/python3.11/site-packages/torch/serialization.py", line 1213, in _save
+    zip_file.write_record("data.pkl", data_value, len(data_value))
+RuntimeError: [enforce fail at inline_container.cc:857] . PytorchStreamWriter failed writing file data.pkl: file write failed
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jl5824/PFS-GNN-Global/src/bipartite_data.py", line 264, in <module>
+    main(args)
+  File "/home/jl5824/PFS-GNN-Global/src/bipartite_data.py", line 252, in main
+    torch.save(data, join(cfg.data_dir, cfg.data_file))
+  File "/home/jl5824/.conda/envs/pfs-gnn/lib/python3.11/site-packages/torch/serialization.py", line 964, in save
+    with _open_zipfile_writer(f) as opened_zipfile:
+  File "/home/jl5824/.conda/envs/pfs-gnn/lib/python3.11/site-packages/torch/serialization.py", line 798, in __exit__
+    self.file_like.write_end_of_file()
+RuntimeError: [enforce fail at inline_container.cc:659] . unexpected pos 64 vs 0

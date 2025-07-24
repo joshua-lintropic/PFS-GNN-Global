@@ -100,7 +100,7 @@ def compute_loss(data: BipartiteData, sharpness: float):
     src, tgt = data['src', 'to', 'tgt'].edge_index
     edge_attr = data['src', 'to', 'tgt'].edge_attr
     galaxy_requirement = F.leaky_relu(
-        data['time_req'] - data['time_spent'],
+        data['tgt'].time_req - data['tgt'].time_spent,
         negative_slope=cfg.leaky_slope
     )
 
@@ -111,8 +111,8 @@ def compute_loss(data: BipartiteData, sharpness: float):
     ).sum(dim=1) / galaxy_requirement
     observations = observations.nan_to_num(nan=0.0, posinf=0.0, neginf=0.0)
     observations = soft_floor(observations, sharpness=sharpness)
-    class_counts = scatter_sum(observations, data.class_labels)
-    class_completion = class_counts / data['class_info'][:,1]
+    class_counts = scatter_sum(observations, data['tgt'].class_labels)
+    class_completion = class_counts / data['tgt'].class_info[:,1]
     min_completion = class_completion.min()
 
     # Compute the overtime by each source node. 
@@ -136,7 +136,7 @@ def compute_upper_bound(data: BipartiteData) -> float:
     Assumes no discretization + all classes receive equal time.
     """
     total_required = torch.clamp(
-        data['time_req'] - data['time_spent'], 
+        data['tgt'].time_req - data['tgt'].time_spent, 
         min=0.0
     ).sum()
     total_available = cfg.total_exposures * cfg.num_fibers

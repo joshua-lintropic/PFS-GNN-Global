@@ -1,0 +1,16 @@
+Traceback (most recent call last):
+  File "/home/jl5824/PFS-GNN-Global/src/train.py", line 112, in <module>
+    main()
+  File "/home/jl5824/PFS-GNN-Global/src/train.py", line 92, in main
+    data, model = train()
+                  ^^^^^^^
+  File "/home/jl5824/PFS-GNN-Global/src/train.py", line 61, in train
+    data = torch.load(os.path.join(cfg.data_dir, cfg.data_file), map_location=cfg.device)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jl5824/.conda/envs/pfs-gnn/lib/python3.11/site-packages/torch/serialization.py", line 1486, in load
+    with _open_zipfile_reader(opened_file) as opened_zipfile:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jl5824/.conda/envs/pfs-gnn/lib/python3.11/site-packages/torch/serialization.py", line 771, in __init__
+    super().__init__(torch._C.PyTorchFileReader(name_or_buffer))
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: PytorchStreamReader failed reading zip archive: failed finding central directory

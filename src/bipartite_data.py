@@ -24,22 +24,27 @@ class BipartiteData(HeteroData):
     """
     def __init__(self) -> None:
         super().__init__()
-        self['edge_rank'] = torch.empty(0)
-        self['class_labels'] = torch.empty(0)
-        self['class_info'] = torch.empty(0)
-        self['time_req'] = torch.empty(0)
-        self['time_spent'] = torch.empty(0)
+        self['src', 'to', 'tgt'].edge_rank = torch.empty(0)
+
+        self['tgt'].class_labels = torch.empty(0)
+        self['tgt'].class_info = torch.empty(0)
+        self['tgt'].time_req = torch.empty(0)
+        self['tgt'].time_spent = torch.empty(0)
+
+        self['global'].history = np.empty(0)
+        self['global'].plan = np.empty(0)
+        self['global'].loss = np.inf
+        self['global'].objective = -np.inf
+        self['global'].epoch = -1
 
         self.optimal = {
             'loss': np.inf, 
             'objective': -np.inf, 
             'epoch': -1, 
-            'history': np.empty(0),
-            'plan': np.empty(0)
         }
 
     def construct(self, num_src: int, num_tgt: int, class_info: Tensor, 
-                prob_edges: Tensor, seed: int = None) -> HeteroData:
+                prob_edges: Tensor, seed: int = None) -> None:
         """
         Constructs bipartite graph with stochastic node features. 
 
@@ -55,6 +60,7 @@ class BipartiteData(HeteroData):
         """
         if seed is not None: 
             torch.manual_seed(seed)
+            np.random.seed(seed)
 
         # === Source node feature construction. ===
         # Uniformly distribute positions in the unit disk using Vogel's method.
@@ -90,8 +96,8 @@ class BipartiteData(HeteroData):
         # Required number of exposures to completion. Initialized to class values. 
         # Resulting `requirements` has size (num_tgt, 1).
         time_req = torch.cat([
-            torch.full((int(count / cfg.num_fields),), float(time_req), device=cfg.device)
-            for time_req, count in class_info
+            torch.full((int(count / cfg.num_fields),), float(tr), device=cfg.device)
+            for tr, count in class_info
         ]).unsqueeze(1)
 
         # Number of exposures already received by target nodes. Initialized to zeros.
@@ -124,7 +130,7 @@ class BipartiteData(HeteroData):
 
         # Sample number of edges per target according to prob_edges. 
         choices = np.arange(k)
-        prob_edges_cpu = prob_edges.cpu().nump()
+        prob_edges_cpu = prob_edges.cpu().numpy()
         edges_per_tgt = np.random.choice(choices, size=num_tgt, p=prob_edges_cpu)
         edges_per_tgt = torch.from_numpy(edges_per_tgt).to(cfg.device)
 
@@ -136,7 +142,7 @@ class BipartiteData(HeteroData):
         edge_pairs = mask.nonzero(as_tuple=False)
         edge_rank = edge_pairs[:,0]
         tgt_index = edge_pairs[:, 1]
-        src_index = idx_topk[edge_rank, tgt_indices]
+        src_index = idx_topk[edge_rank, tgt_index]
 
         edge_index = torch.stack([src_index, tgt_index], dim=0)
         edge_attr = torch.rand((edge_index.size(1), cfg.total_exposures), device=cfg.device)
@@ -151,14 +157,14 @@ class BipartiteData(HeteroData):
         self['src', 'to', 'tgt'].edge_attr = edge_attr
         self['global'].x = global_x
 
-        self['edge_rank'] = torch.tensor(edge_rank, dtype=torch.long)
-        self['class_labels'] = labels.to(torch.long)
-        self['class_info'] = class_info
-        self['time_req'] = time_req
-        self['time_spent'] = time_spent
+        self['src', 'to', 'tgt'].edge_rank = edge_rank
+        self['tgt'].class_labels = labels.to(torch.long)
+        self['tgt'].class_info = class_info
+        self['tgt'].time_req = time_req
+        self['tgt'].time_spent = time_spent
 
-        self.optimal['history'] = np.zeros((cfg.num_histories, cfg.num_epochs))
-        self.optimal['plan'] = np.zeros((num_src, num_tgt))
+        self['global'].history = np.zeros((cfg.num_histories, cfg.num_epochs))
+        self['global'].plan = np.zeros((num_src, num_tgt))
     
     def visualize(self, max_edges: int, edge_alpha: float, src_size: int,
                   tgt_size: int, figsize: tuple, path: str) -> None:
@@ -206,7 +212,7 @@ class BipartiteData(HeteroData):
                 marker='o', label='Fibers', zorder=2)
 
         # Color target nodes by their class label.
-        class_labels = self['tgt'].x[:, 0].cpu().numpy()
+        class_labels = self['tgt'].class_labels.cpu().numpy()
         unique_labels = np.unique(class_labels)
         for idx, label in enumerate(unique_labels):
             mask = class_labels == label
@@ -231,23 +237,26 @@ class BipartiteData(HeteroData):
         ax.set_title('PFS Fiber-Galaxy Spatial Visualization with Connectivity', fontsize=20)
         plt.tight_layout()
         plt.savefig(path, dpi=cfg.dpi)
+        plt.closefig()
 
 
 def main(args): 
     # Construct and save bipartite graph. 
     if args.save: 
         class_info = np.loadtxt(join(cfg.data_dir, cfg.class_file), delimiter=',')
-        class_info = torch.tensor(class_info)
+        class_info = torch.tensor(class_info, device=cfg.device)
         prob_edges = torch.tensor([0.0, 0.65, 0.3, 0.05])
         data = BipartiteData()
         data.construct(num_src=cfg.num_fibers, num_tgt=int(cfg.num_galaxies/cfg.num_fields), 
                     class_info=class_info, prob_edges=prob_edges, seed=cfg.seed)
         torch.save(data, join(cfg.data_dir, cfg.data_file))
+        print('Constructed and saved new bipartite graph.')
     
     # Visualize bipartite graph via 2D positions.
     if args.visualize:
         data.visualize(max_edges=50_000, edge_alpha=1.0, src_size=30, tgt_size=10, 
                        figsize=(16,16), path=join(cfg.data_dir, cfg.viz_file))
+        print('Created visualization of bipartite graph.')
 
 
 if __name__ == '__main__': 

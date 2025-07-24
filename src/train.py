@@ -21,7 +21,7 @@ def train_step(data: BipartiteData, model: GraphNetwork,
     except ZeroDivisionError: 
         param = 0
     sharpness = cfg.sharps[0] + param * (cfg.sharps[1] - cfg.sharps[0])
-    with autocast(device_type=cfg.device.type):
+    with autocast():
         data = model(data)
         loss, objective, observations = compute_loss(data, sharpness)
     scaler.scale(loss).backward()
@@ -38,15 +38,15 @@ def train_step(data: BipartiteData, model: GraphNetwork,
     # Store history for analysis. 
     loss_cpu = loss.detach().cpu().numpy()
     objective_cpu = objective.detach().cpu().numpy()
-    data.optimal['history'][0][epoch] = loss_cpu
-    data.optimal['history'][1][epoch] = objective_cpu
+    data['global'].history[0][epoch-1] = loss_cpu
+    data['global'].history[1][epoch-1] = objective_cpu
 
     # Checkpoint best-performing model. 
-    if objective_cpu >= data.optimal['objective']:
-        data.optimal['loss'] = loss_cpu
-        data.optimal['objective'] = objective_cpu
-        data.optimal['epoch'] = epoch
-        data['plan'] = observations.detach().cpu().numpy()
+    if objective_cpu >= data['global'].objective:
+        data['global'].loss = loss_cpu
+        data['global'].objective = objective_cpu
+        data['global'].epoch = epoch
+        data['global'].plan = observations.detach().cpu().numpy()
         if sharpness >= cfg.min_sharp or epoch == 1:
             torch.save(data, os.path.join(cfg.models_dir, cfg.checkpoint_file))
     
@@ -55,7 +55,10 @@ def train_step(data: BipartiteData, model: GraphNetwork,
 
 def train(): 
     # Create the message-passing network and lift the data. 
-    data = torch.load(os.path.join(cfg.data_dir, cfg.data_file), weights_only=False)
+    data_path = os.path.join(cfg.data_dir, cfg.data_file)
+    if not os.path.exists(data_path): 
+        raise FileNotFoundError(f'No such data file: {data_path}')
+    data = torch.load(os.path.join(cfg.data_dir, cfg.data_file), map_location=cfg.device)
     data = data.to(cfg.device)
     model = GraphNetwork(
         num_blocks = cfg.num_blocks, 
@@ -91,9 +94,10 @@ def main():
     time = time.strftime("%B %-d, %Y @ %I:%M:%S %p")
 
     # Calculate relative optimality.
-    space = max(len(field) for field in data.optimal.keys()) + 4
+    metrics = ['loss', 'objective', 'epcoh']
+    space = max(len(field) for field in metrics) + 4
     upper_bound = compute_upper_bound(data)
-    ratio = data.optimal['objective'] / upper_bound
+    ratio = data['global'].objective / upper_bound
     
     # Write to log file. 
     os.makedirs(cfg.results_dir, exist_ok=True)
@@ -102,8 +106,8 @@ def main():
         file.write(f'TIME: {time}\n')
         file.write(f'Upper Bound: {upper_bound}\n')
         file.write(f'Optimality Ratio: {ratio}\n')
-        for key, val in data.optimal.items():
-            file.write(f'{(key):<{space}} @ Optimal Objective: {val}\n')
+        for m in metrics:
+            file.write(f'{(m):<{space}} @ Optimal Objective: {getattr(data["global"], m)}\n')
 
 if __name__ == '__main__': 
     main()

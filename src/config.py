@@ -1,4 +1,5 @@
 import torch
+import os
 
 if torch.cuda.is_available():
     device = torch.device('cuda')
@@ -8,10 +9,10 @@ else:
     raise Exception('CUDA not found, please install a supported version')
 
 # project directories
-data_dir = '../data/'
-figures_dir = '../figures/'
-models_dir = '../models/'
-results_dir = '../results/'
+data_dir    = os.path.expanduser('~/PFS-GNN-Global/data/')
+figures_dir = os.path.expanduser('~/PFS-GNN-Global/figures/')
+models_dir  = os.path.expanduser('~/PFS-GNN-Global/models/')
+results_dir = os.path.expanduser('~/PFS-GNN-Global/results/')
 
 # load and save points 
 class_file = 'class_info.csv'
@@ -37,7 +38,7 @@ global_dim = 10
 
 # hyperparameters
 retrain = False
-num_epochs = 20_000
+num_epochs = 5_000
 num_histories = 2
 learning_rate = 5e-4
 leaky_slope = 0.1
