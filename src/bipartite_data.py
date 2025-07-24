@@ -241,8 +241,7 @@ def main(args):
         prob_edges = torch.tensor([0.0, 0.65, 0.3, 0.05])
         data = BipartiteData()
         data.construct(num_src=cfg.num_fibers, num_tgt=int(cfg.num_galaxies/cfg.num_fields), 
-                    class_info=class_info, prob_edges=prob_edges, device=cfg.device, 
-                    seed=cfg.seed)
+                    class_info=class_info, prob_edges=prob_edges, seed=cfg.seed)
         torch.save(data, join(cfg.data_dir, cfg.data_file))
     
     # Visualize bipartite graph via 2D positions.
