@@ -98,10 +98,10 @@ def main():
     log_path = os.path.join(cfg.results_dir, cfg.log_file)
     with open(log_path, 'w') as file: 
         file.write(f'TIME: {time}\n')
-        file.write('Upper Bound: {upper_bound}\n')
-        file.write('Optimality Ratio: {ratio}\n')
+        file.write(f'Upper Bound: {upper_bound}\n')
+        file.write(f'Optimality Ratio: {ratio}\n')
         for key, val in data.optimal.items():
-            file.write(f'{(key+":"):<{space}} @ Optimal Objective: {val}\n')
+            file.write(f'{(key):<{space}} @ Optimal Objective: {val}\n')
 
 if __name__ == '__main__': 
     main()
