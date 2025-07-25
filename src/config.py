@@ -1,3 +1,4 @@
+# config.py
 import torch
 import os
 
@@ -39,14 +40,14 @@ prob_edges = [          # chance that any galaxy is connected to k edges
 ]
 
 # model specification
-lifted_src_dim = 10
-lifted_tgt_dim = 10
-lifted_edge_dim = 50
-global_dim = 10
+lifted_src_dim = 64
+lifted_tgt_dim = 64
+lifted_edge_dim = 128
+global_dim = 64
 
 # hyperparameters
 retrain = False
-num_epochs = 1_000_000
+num_epochs = 2_000_000
 num_histories = 2
 learning_rate = 5e-4
 leaky_slope = 0.1
@@ -62,3 +63,4 @@ seed = 42       # random seed
 dpi = 600       # plot density
 eps = 1e-6      # numerical stability
 stats = False   # show intermediate stats with tqdm (slower)
+
