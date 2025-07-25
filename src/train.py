@@ -21,12 +21,14 @@ def train_step(data: BipartiteData, fossil: Fossil, model: GraphNetwork,
     optimizer.zero_grad()
     data_ = model(data)
     try: 
-        sharpness = cfg.sharps[0] + (cfg.sharps[1]-cfg.sharps[0]) \
-            * (epoch-1)/(cfg.num_epochs-1)
+        r = (epoch-1) / (cfg.num_epochs-1)
+        sharpness = cfg.sharps[0] + r * (cfg.sharps[1]-cfg.sharps[0]) 
+        tau = max(cfg.anneal[0], (1-r) * cfg.anneal[1])
     except ZeroDivisionError: 
         sharpness = cfg.sharps[0]
+        tau = cfg.anneal[0]
     loss, objective, fiber_overtime, class_completion = compute_loss(
-        data_, fossil, sharpness
+        data_, fossil, sharpness, tau
     )
     loss.backward()
     optimizer.step()
