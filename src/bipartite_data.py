@@ -1,3 +1,4 @@
+# bipartite_data.py
 import torch
 from torch import Tensor, device
 import matplotlib.pyplot as plt
