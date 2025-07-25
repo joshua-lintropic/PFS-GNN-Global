@@ -1,3 +1,4 @@
+# visualize.py
 import matplotlib.pyplot as plt
 import os
 
@@ -159,3 +160,4 @@ def plot_history(history: dict, optimal: dict) -> None:
 #     plt.tight_layout()
 #     plt.savefig(path, dpi=cfg.dpi)
 #     plt.closefig()
+
