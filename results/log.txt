@@ -1,6 +1,6 @@
-TIME: July 24, 2025 @ 11:51:01 PM
+TIME: July 25, 2025 @ 12:45:07 AM
 Upper Bound: 0.6549197435379028
-Optimality Ratio: 0.0
-Optimal loss: 73.08734893798828
-Optimal objective: 0.0
-Optimal epoch: 10
+Optimality Ratio: 0.08543782252697198
+Optimal loss: -83.27471324375698
+Optimal objective: 0.05595491681780134
+Optimal epoch: 618

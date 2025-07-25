@@ -8,7 +8,7 @@
 #SBATCH --gres=gpu:1                        # number of gpus per node
 #SBATCH --constraint=gpu80                  # explicitly run on A100 GPUs
 #SBATCH --time=12:00:00                     # total run time limit (HH:MM:SS)
-#SBATCH --mail-type=END                     # send email when job is complete
+#SBATCH --mail-type=bEGIN,END               # send email when job is complete
 #SBATCH --mail-user=jl5824@princeton.edu    # email address 
 
 cd ..

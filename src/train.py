@@ -24,15 +24,21 @@ def train_step(data: BipartiteData, fossil: Fossil, model: GraphNetwork,
             * (epoch-1)/(cfg.num_epochs-1)
     except ZeroDivisionError: 
         sharpness = cfg.sharps[0]
-    loss, objective = compute_loss(data_, fossil, sharpness)
+    loss, objective, fiber_overtime, class_completion = compute_loss(
+        data_, fossil, sharpness
+    )
     loss.backward()
     optimizer.step()
 
     # Store history for analysis. 
     loss_cpu = loss.detach().cpu().numpy()
     objective_cpu = objective.detach().cpu().numpy()
+    fiber_overtime_cpu = fiber_overtime.detach().cpu().numpy()
+    class_completion_cpu = class_completion.detach().cpu().numpy()
     history['loss'][epoch-1] = loss_cpu
     history['objective'][epoch-1] = objective_cpu
+    history['overtime'][epoch-1] = fiber_overtime_cpu
+    history['completion'][:,epoch-1] = class_completion_cpu
 
     # Checkpoint best-performing model. 
     if objective_cpu >= optimal['objective']:
@@ -44,7 +50,7 @@ def train_step(data: BipartiteData, fossil: Fossil, model: GraphNetwork,
             os.path.join(cfg.models_dir, cfg.checkpoint_file)
         )
     
-    return loss_cpu, objective_cpu
+    return loss_cpu, objective_cpu, fiber_overtime_cpu, class_completion_cpu
 
 
 def train(): 
@@ -81,6 +87,8 @@ def train():
     history = {
         'loss': np.zeros(cfg.num_epochs),
         'objective': np.zeros(cfg.num_epochs),
+        'overtime': np.zeros(cfg.num_epochs),
+        'completion': np.zeros((cfg.num_classes, cfg.num_epochs))
     }
     optimal = {
         'loss': np.inf, 
@@ -94,9 +102,21 @@ def train():
     desc = 'Training Neural Message Passing for Galaxy Evolution'
     progress_bar = trange(1, cfg.num_epochs + 1, desc=desc)
     for epoch in progress_bar: 
-        loss, objective = train_step(data, fossil, model, optimizer, 
-                                     epoch, history, optimal)
-        progress_bar.set_postfix(loss=loss, objective=objective)
+        loss, objective, overtime, completion = train_step(
+            data, fossil, model, optimizer, epoch, history, optimal
+        )
+        completion_str = np.array2string(
+            completion, formatter={'float_kind':lambda x: "%.4f" % x}
+        )
+        postfix_str = (
+            '\n'
+            f'Loss: {loss:.8f}, '
+            f'Minimum Completion: {objective:.8f}, '
+            f'Fiber Overtime: {overtime:.8f}'
+            '\n'
+            f'Class Completion: {completion_str}'
+        )
+        progress_bar.set_postfix_str(postfix_str)
 
     return data, fossil, model, history, optimal
     

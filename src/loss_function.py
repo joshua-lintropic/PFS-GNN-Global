@@ -1,7 +1,7 @@
 import torch
 from torch import Tensor
 import torch.nn.functional as F
-from torch_scatter import scatter_sum, scatter_softmax
+from torch_scatter import scatter_add, scatter_softmax
 import numpy as np
 
 from bipartite_data import BipartiteData, Fossil
@@ -69,24 +69,26 @@ def compute_loss(data: BipartiteData, fossil: Fossil,
     galaxy_requirement = F.leaky_relu(
         fossil.time_req - fossil.time_spent,
         negative_slope=cfg.leaky_slope
-    )
+    ).squeeze()
 
     """
     Compute the fraction of galaxies completed in each class. 
     Sizes: 
         fiber_action:       (num_edges, total_exposures)
         observations:       (num_tgt,)
-        class_counts:       (num_classes,)
-        class_completion:   (num_classes,)
+        class_*:            (num_classes,)
         min_completion:     (1,) 
     """
     fiber_action = scatter_softmax(edge_attr, src, dim=0)
     fiber_action = soft_round(fiber_action, sharpness=sharpness)
-    observed = scatter_sum(
+    observed = scatter_add(
         fiber_action, tgt, dim=0, dim_size=data.x_t.size(0)
     ).sum(dim=1) / galaxy_requirement
     observed = observed.nan_to_num(nan=1.0, posinf=1.0, neginf=1.0)
-    class_counts = scatter_sum(observed, fossil.class_labels.to(torch.long))
+    class_labels = fossil.class_labels.squeeze().to(torch.long)
+    class_counts = scatter_add(
+        observed, class_labels, dim=0, dim_size=cfg.num_classes
+    )
     class_completion = class_counts / fossil.class_info[:,1]
     min_completion = class_completion.min()
 
@@ -95,7 +97,7 @@ def compute_loss(data: BipartiteData, fossil: Fossil,
     Sizes:
         fiber_overtime:     (num_src, edge_dim)
     """
-    fiber_overtime = scatter_sum(
+    fiber_overtime = scatter_add(
         fiber_action, src, dim=0, dim_size=data.x_s.size(0)
     )
     fiber_overtime = torch.sum(F.leaky_relu(
@@ -106,7 +108,7 @@ def compute_loss(data: BipartiteData, fossil: Fossil,
     # Compute loss and objective. 
     loss = cfg.weights['objective'] * min_completion + \
         cfg.weights['overtime'] * fiber_overtime
-    return loss, min_completion
+    return loss, min_completion, fiber_overtime, class_completion
 
 
 def compute_upper_bound(fossil: Fossil) -> float:

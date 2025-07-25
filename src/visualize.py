@@ -3,6 +3,11 @@ import os
 
 import config as cfg
 
+import matplotlib.pyplot as plt
+import os
+
+import config as cfg
+
 def plot_history(history: dict, optimal: dict) -> None:
     """
     Plot the loss and objective values over training epochs.
@@ -13,7 +18,7 @@ def plot_history(history: dict, optimal: dict) -> None:
     """
     epochs = range(1, len(history['loss']) + 1)
     
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(12, 10))
 
     # Plot loss over epochs
     ax1.plot(epochs, history['loss'], marker='o', color='red', label='Loss')
@@ -37,10 +42,35 @@ def plot_history(history: dict, optimal: dict) -> None:
     ax2.axvline(x=optimal['epoch'], color='black', linestyle='--', label='Optimal Epoch')
     ax2.legend()
 
+    # Plot overtime over epochs.
+    ax3.plot(epochs, history['overtime'], marker='o', color='green', label='Overtime')
+    ax3.set_title('Fiber Overtime Over Epochs')
+    ax3.set_xlabel('Epoch')
+    ax3.set_ylabel('Overtime')
+    ax3.grid(True)
+    
+    # Draw vertical line at the epoch with optimal objective.
+    ax3.axvline(x=optimal['epoch'], color='black', linestyle='--', label='Optimal Epoch')
+    ax3.legend()
+
+    # Plot completion for each class over epochs.
+    num_classes = history['completion'].shape[0]
+    cmap = plt.get_cmap('tab20')
+    for i in range(num_classes):
+        ax4.plot(epochs, history['completion'][i, :], color=cmap(i), label=f'Class {i}')
+    ax4.set_title('Class Completion Over Epochs')
+    ax4.set_xlabel('Epoch')
+    ax4.set_ylabel('Completion')
+    ax4.grid(True)
+    
+    # Draw vertical line at the epoch with optimal objective.
+    ax4.axvline(x=optimal['epoch'], color='black', linestyle='--', label='Optimal Epoch')
+    ax4.legend(fontsize='small')
+
     plt.tight_layout()
     plt.savefig(os.path.join(cfg.results_dir, cfg.history_file), dpi=cfg.dpi)
-    
-    
+
+
 # def visualize_data(data: BipartiteData, edge_rank: Tensor, class_labels: Tensor, 
 #                    max_edges: int, edge_alpha: float, src_size: int, tgt_size: int, 
 #                    figsize: tuple, path: str) -> None:
