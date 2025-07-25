@@ -41,7 +41,7 @@ def train_step(data: BipartiteData, fossil: Fossil, model: GraphNetwork,
     history['completion'][:,epoch-1] = class_completion_cpu
 
     # Checkpoint best-performing model. 
-    if objective_cpu >= optimal['objective']:
+    if objective_cpu >= optimal['objective'] and sharpness >= cfg.min_sharp:
         optimal['loss'] = loss_cpu
         optimal['objective'] = objective_cpu
         optimal['epoch'] = epoch
