@@ -88,7 +88,7 @@ def train():
         'loss': np.zeros(cfg.num_epochs),
         'objective': np.zeros(cfg.num_epochs),
         'overtime': np.zeros(cfg.num_epochs),
-        # 'completion': np.zeros((cfg.num_classes, cfg.num_epochs))
+        'completion': np.zeros((cfg.num_classes, cfg.num_epochs))
     }
     optimal = {
         'loss': np.inf, 
