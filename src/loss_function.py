@@ -56,7 +56,7 @@ def smooth_min(x: Tensor, beta: float) -> Tensor:
 
 
 def compute_loss(data: BipartiteData, fossil: Fossil, 
-                 sharpness: float) -> tuple[Tensor]:
+    sharpness: float, tau: float) -> tuple[Tensor]:
     """
     Smooth loss function that rewards minimum class completion and 
     punishes fiber overtime. 
@@ -85,7 +85,6 @@ def compute_loss(data: BipartiteData, fossil: Fossil,
         min_completion:     (1,) 
     """
     logits = scatter_softmax(edge_attr, src, dim=0)
-    tau = max(cfg.anneal[0], cfg.anneal[1] * (1 - (epoch-1)/(cfg.num_epochs-1)))
     fiber_action = F.gumbel_softmax(logits, tau=tau,  hard=True, dim=1)
     completion_mask = scatter_add(
         fiber_action, tgt, dim=0, dim_size=data.x_t.size(0)
