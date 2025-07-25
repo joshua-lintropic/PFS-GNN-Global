@@ -1,3 +1,4 @@
+# loss_function.py
 import torch
 from torch import Tensor
 import torch.nn.functional as F
@@ -75,19 +76,20 @@ def compute_loss(data: BipartiteData, fossil: Fossil,
     Compute the fraction of galaxies completed in each class. 
     Sizes: 
         fiber_action:       (num_edges, total_exposures)
-        observations:       (num_tgt,)
+        completion_mask:    (num_tgt,)
         class_*:            (num_classes,)
         min_completion:     (1,) 
     """
     fiber_action = scatter_softmax(edge_attr, src, dim=0)
     fiber_action = soft_round(fiber_action, sharpness=sharpness)
-    observed = scatter_add(
+    completion_mask = scatter_add(
         fiber_action, tgt, dim=0, dim_size=data.x_t.size(0)
-    ).sum(dim=1) / galaxy_requirement
-    observed = observed.nan_to_num(nan=1.0, posinf=1.0, neginf=1.0)
+    ).sum(dim=1) / (galaxy_requirement + cfg.eps)
+    completion_mask = soft_floor(completion_mask, sharpness)
+    completion_mask = torch.clamp(completion_mask, min=0.0, max=1.0)
     class_labels = fossil.class_labels.squeeze().to(torch.long)
     class_counts = scatter_add(
-        observed, class_labels, dim=0, dim_size=cfg.num_classes
+        completion_mask, class_labels, dim=0, dim_size=cfg.num_classes
     )
     class_completion = class_counts / fossil.class_info[:,1]
     min_completion = class_completion.min()
