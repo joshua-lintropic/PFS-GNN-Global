@@ -46,7 +46,7 @@ global_dim = 10
 
 # hyperparameters
 retrain = False
-num_epochs = 800
+num_epochs = 40_000
 num_histories = 2
 learning_rate = 5e-4
 leaky_slope = 0.1
@@ -58,6 +58,7 @@ sharps = (0.0, 10.0)
 min_sharp = 5.0
 
 # miscellaneous 
-seed = 42
-dpi = 600
-eps = 1e-6
+seed = 42       # random seed
+dpi = 600       # plot density
+eps = 1e-6      # numerical stability
+stats = False   # show intermediate stats with tqdm (slower)

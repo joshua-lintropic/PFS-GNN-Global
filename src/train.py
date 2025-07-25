@@ -88,7 +88,7 @@ def train():
         'loss': np.zeros(cfg.num_epochs),
         'objective': np.zeros(cfg.num_epochs),
         'overtime': np.zeros(cfg.num_epochs),
-        'completion': np.zeros((cfg.num_classes, cfg.num_epochs))
+        # 'completion': np.zeros((cfg.num_classes, cfg.num_epochs))
     }
     optimal = {
         'loss': np.inf, 
@@ -105,18 +105,16 @@ def train():
         loss, objective, overtime, completion = train_step(
             data, fossil, model, optimizer, epoch, history, optimal
         )
-        completion_str = np.array2string(
-            completion, formatter={'float_kind':lambda x: "%.4f" % x}
-        )
-        postfix_str = (
-            '\n'
-            f'Loss: {loss:.8f}, '
-            f'Minimum Completion: {objective:.8f}, '
-            f'Fiber Overtime: {overtime:.8f}'
-            '\n'
-            f'Class Completion: {completion_str}'
-        )
-        progress_bar.set_postfix_str(postfix_str)
+        if cfg.stats:
+            completion_str = np.array2string(
+                completion, formatter={'float_kind':lambda x: "%.4f" % x}
+            )
+            progress_bar.set_postfix({
+                'Loss': f'{loss:.8f}',
+                'Objective': f'{objective:.8f}',
+                'Overtime': f'{overtime:.8f}',
+                'ClassComp': completion_str
+            })
 
     return data, fossil, model, history, optimal
     
