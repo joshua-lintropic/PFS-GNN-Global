@@ -1,7 +1,7 @@
 # models.py
 import torch
 from torch import Tensor
-from torch.nn import Linear, LeakyReLU, GELU, Dropout, RMSNorm
+from torch.nn import Linear, LeakyReLU, GELU, Dropout, Embedding, RMSNorm
 from torch.nn import Sequential, Module, ModuleList
 import torch.nn.functional as F
 from torch_geometric.data import HeteroData
@@ -202,7 +202,7 @@ class GraphNetwork(Module):
             Linear(lifted_src_dim, lifted_src_dim)
         )
         self.tgt_encoder = Sequential(
-            Linear(tgt_dim, lifted_tgt_dim), 
+            Linear(tgt_dim + lifted_tgt_dim, lifted_tgt_dim), 
             GELU(),
             Dropout(p=cfg.dropout),
             Linear(lifted_tgt_dim, lifted_tgt_dim)
@@ -213,6 +213,9 @@ class GraphNetwork(Module):
             Dropout(p=cfg.dropout),
             Linear(lifted_edge_dim, lifted_edge_dim)
         )
+
+        # Class embedding. 
+        self.class_embedding = Embedding(cfg.num_classes, lifted_tgt_dim)
 
         # Apply several rounds of message-passing blocks. 
         self.msg_pass_blocks = ModuleList([
@@ -251,8 +254,10 @@ class GraphNetwork(Module):
         x_u = data.x_u
 
         # Encode features into a higher-dimensional representation. 
+        labels = data.x_t[:,0].long()
+        ce = self.class_embedding(labels)
         x_s = self.src_encoder(x_s)
-        x_t = self.tgt_encoder(x_t)
+        x_t = self.tgt_encoder(torch.cat([x_t, ce], dim=1))
         edge_attr = self.edge_encoder(edge_attr)
 
         # Apply several rounds of MetaLayer-style message passing on graph. 
