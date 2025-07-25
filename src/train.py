@@ -1,3 +1,4 @@
+# train.py
 import torch
 from torch.cuda.amp import autocast, GradScaler
 from torch.optim import AdamW
@@ -78,10 +79,6 @@ def train():
         global_dim = cfg.global_dim
     )
     model = model.to(cfg.device)
-
-    # Perform the initial encoding into a higher-dimensional space. 
-    with torch.no_grad():
-        data = model.encode(data)
 
     # Initialize information tracking. 
     history = {
