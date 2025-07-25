@@ -1,10 +1,10 @@
 # models.py
 import torch
 from torch import Tensor
-from torch.nn import Linear, LeakyReLU, RMSNorm, Sequential, Module, ModuleList
+from torch.nn import Linear, LeakyReLU, GELU, Dropout, RMSNorm
+from torch.nn import Sequential, Module, ModuleList
 import torch.nn.functional as F
 from torch_geometric.data import HeteroData
-from torch_geometric.nn import GraphNorm
 from torch_scatter import scatter_add, scatter_mean, scatter_softmax
 
 from bipartite_data import BipartiteData
@@ -13,28 +13,26 @@ import config as cfg
 
 class EdgeModel(Module):
     """
-    Multi-head graph attention network to better learn edge relations. 
+    Multi-head graph attention network to learn edge relations. 
     """
     def __init__(self, lifted_src_dim: int, lifted_tgt_dim: int, 
-        lifted_edge_dim: int, global_dim: int, heads: int) -> None: 
+        lifted_edge_dim: int, global_dim: int) -> None: 
         super().__init__()
-        # Project inputs into a common hidden space. 
-        hidden_dim = lifted_edge_dim
-        self.src_proj       = Linear(lifted_src_dim, hidden_dim)
-        self.tgt_proj       = Linear(lifted_tgt_dim, hidden_dim)
-        self.edge_proj      = Linear(lifted_edge_dim, hidden_dim)
-        self.global_proj    = Linear(global_dim, hidden_dim)
-
-        # Graph attention layer. 
-        self.graph_attention = GATConv(
-            in_channels=hidden_dim, out_channels=lifted_edge_dim, 
-            heads=heads, concat=False, negative_slope=cfg.leaky_slope,
-            add_self_loops=False,
+        message_dim = lifted_src_dim + lifted_tgt_dim + lifted_edge_dim + global_dim
+        self.update_mlp = Sequential(
+            Linear(message_dim, message_dim),
+            GELU(),
+            Dropout(p=cfg.dropout), 
+            Linear(message_dim, lifted_edge_dim)
         )
+        self.norm = RMSNorm(lifted_edge_dim)
 
-        # Post-attention refinement. 
-        self.refine = LeakyReLU(negative_slope=cfg.leaky_slope)
-        self.norm   = RMSNorm(lifted_edge_dim)
+    def forward(self, x_s: Tensor, x_t: Tensor, edge_index: Tensor,
+        edge_attr: Tensor, x_u: Tensor) -> Tensor:
+        src, tgt = edge_index
+        E = edge_attr.size(0)
+        h = torch.cat([x_s[src], x_t[tgt], edge_attr, x_u.expand(E,-1)], dim=-1)
+        return self.norm(self.update_mlp(h))
 
 
 class SourceModel(Module):
@@ -48,16 +46,18 @@ class SourceModel(Module):
         message_dim = lifted_tgt_dim + lifted_edge_dim
         self.message_mlp = Sequential(
             Linear(message_dim, message_dim),
-            LeakyReLU(negative_slope=cfg.leaky_slope),
+            GELU(), 
+            Dropout(p=cfg.dropout),
             Linear(message_dim, message_dim)
         )
         update_dim = lifted_src_dim + 4 * message_dim + global_dim
         self.update_mlp = Sequential(
             Linear(update_dim, update_dim),
-            LeakyReLU(negative_slope=cfg.leaky_slope),
+            GELU(), 
+            Dropout(p=cfg.dropout),
             Linear(update_dim, lifted_src_dim)
         )
-        self.norm = GraphNorm(lifted_src_dim)
+        self.norm = RMSNorm(lifted_src_dim)
 
     def forward(self, x_s: Tensor, x_t: Tensor, edge_index: Tensor, 
         edge_attr: Tensor, x_u: Tensor) -> Tensor:
@@ -96,16 +96,18 @@ class TargetModel(Module):
         message_dim = lifted_src_dim + lifted_edge_dim
         self.message_mlp = Sequential(
             Linear(message_dim, message_dim),
-            LeakyReLU(negative_slope=cfg.leaky_slope),
+            GELU(), 
+            Dropout(p=cfg.dropout),
             Linear(message_dim, message_dim)
         )
         update_dim = lifted_tgt_dim + message_dim + global_dim
         self.update_mlp = Sequential(
             Linear(update_dim, update_dim), 
-            LeakyReLU(negative_slope=cfg.leaky_slope),
+            GELU(), 
+            Dropout(p=cfg.dropout),
             Linear(update_dim, lifted_tgt_dim)
         )
-        self.norm = GraphNorm(lifted_tgt_dim)
+        self.norm = RMSNorm(lifted_tgt_dim)
 
 
     def forward(self, x_s: Tensor, x_t: Tensor, edge_index: Tensor, 
@@ -131,7 +133,8 @@ class GlobalModel(Module):
         update_dim = global_dim + lifted_src_dim + lifted_tgt_dim
         self.mlp = Sequential(
             Linear(update_dim, update_dim), 
-            LeakyReLU(negative_slope=cfg.leaky_slope),
+            GELU(), 
+            Dropout(p=cfg.dropout),
             Linear(update_dim, global_dim)
         )
         self.norm = RMSNorm(global_dim)
@@ -160,8 +163,7 @@ class Block(Module):
         self.tgt_model = TargetModel(lifted_src_dim, lifted_tgt_dim, 
                                      lifted_edge_dim, global_dim)
         self.edge_model = EdgeModel(lifted_src_dim, lifted_tgt_dim, 
-                                    lifted_edge_dim, global_dim, 
-                                    heads=cfg.heads)
+                                    lifted_edge_dim, global_dim)
         self.global_model = GlobalModel(lifted_src_dim, lifted_tgt_dim, 
                                         lifted_edge_dim, global_dim)
 
@@ -195,17 +197,20 @@ class GraphNetwork(Module):
         # Encode node features into higher-dimensional representation.
         self.src_encoder = Sequential(
             Linear(src_dim, lifted_src_dim),
-            LeakyReLU(negative_slope=cfg.leaky_slope),
+            GELU(),
+            Dropout(p=cfg.dropout),
             Linear(lifted_src_dim, lifted_src_dim)
         )
         self.tgt_encoder = Sequential(
             Linear(tgt_dim, lifted_tgt_dim), 
-            LeakyReLU(negative_slope=cfg.leaky_slope),
+            GELU(),
+            Dropout(p=cfg.dropout),
             Linear(lifted_tgt_dim, lifted_tgt_dim)
         )
         self.edge_encoder = Sequential(
             Linear(edge_dim, lifted_edge_dim),
-            LeakyReLU(negative_slope=cfg.leaky_slope),
+            GELU(),
+            Dropout(p=cfg.dropout),
             Linear(lifted_edge_dim, lifted_edge_dim)
         )
 
@@ -218,17 +223,20 @@ class GraphNetwork(Module):
         # Decode node features into original-dimension representations. 
         self.src_decoder = Sequential(
             Linear(lifted_src_dim, lifted_src_dim), 
-            LeakyReLU(negative_slope=cfg.leaky_slope),
+            GELU(),
+            Dropout(p=cfg.dropout),
             Linear(lifted_src_dim, src_dim)
         )
         self.tgt_decoder = Sequential(
             Linear(lifted_tgt_dim, lifted_tgt_dim), 
-            LeakyReLU(negative_slope=cfg.leaky_slope),
+            GELU(),
+            Dropout(p=cfg.dropout),
             Linear(lifted_tgt_dim, tgt_dim)
         )
         self.edge_decoder = Sequential(
             Linear(lifted_edge_dim, lifted_edge_dim), 
-            LeakyReLU(negative_slope=cfg.leaky_slope),
+            GELU(),
+            Dropout(p=cfg.dropout),
             Linear(lifted_edge_dim, cfg.total_exposures)
         )
 

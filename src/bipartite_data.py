@@ -161,7 +161,7 @@ def construct_data(num_src: int, num_tgt: int, class_info: Tensor,
     ), min=0.0)
     
     # === Global node feature construction. === 
-    x_u = torch.rand((1, cfg.global_dim), device=cfg.device)
+    x_u = torch.zeros((1, cfg.global_dim), device=cfg.device)
 
     # === Build bipartite graph. ===
     data = BipartiteData(x_s, x_t, edge_index, edge_attr, x_u)

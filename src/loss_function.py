@@ -51,6 +51,10 @@ def soft_floor(x: Tensor, sharpness: float,
     return x + 1/pi * torch.arctan(num/den) - torch.arctan(r/(1-r))
 
 
+def smooth_min(x: Tensor, beta: float) -> Tensor:
+    return  -1.0/beta * torch.logsumexp(-beta * x, dim=0)
+
+
 def compute_loss(data: BipartiteData, fossil: Fossil, 
                  sharpness: float) -> tuple[Tensor]:
     """
@@ -92,7 +96,7 @@ def compute_loss(data: BipartiteData, fossil: Fossil,
         completion_mask, class_labels, dim=0, dim_size=cfg.num_classes
     )
     class_completion = class_counts / fossil.class_info[:,1]
-    min_completion = class_completion.min()
+    min_completion = smooth_min(class_completion, beta=cfg.beta)
 
     """
     Punishes fibers for trying to observe >1 galaxy per exposure. 

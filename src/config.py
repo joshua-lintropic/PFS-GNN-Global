@@ -32,23 +32,20 @@ num_pointings = 3       # number of positions with different fiber views
 num_blocks =  8         # number of message-passing rounds
 total_exposures = 42    # number of observations stages
 annulus = (0.0, 2.0)    # annulus of observation for each fiber
-prob_edges = [          # chance that any galaxy is connected to k edges
-    0.0, 
-    0.65, 
-    0.3, 
-    0.05
-]
+
+# control galaxy -> fiber edge probabilities
+prob_edges = [0.0, 0.6, 0.35, 0.05]
 
 # model specification
 lifted_src_dim = 64
 lifted_tgt_dim = 64
 lifted_edge_dim = 128
 global_dim = 64
-heads = 4
+dropout = 0.5
 
 # hyperparameters
 retrain = False
-num_epochs = 2_000_000
+num_epochs = 100
 num_histories = 2
 learning_rate = 5e-4
 leaky_slope = 0.1
@@ -58,6 +55,7 @@ weights = {
 }
 sharps = (0.0, 10.0)
 min_sharp = 5.0
+beta = 50.0
 
 # miscellaneous 
 seed = 42       # random seed

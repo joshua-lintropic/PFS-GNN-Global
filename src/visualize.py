@@ -20,10 +20,11 @@ def plot_history(history: dict, optimal: dict) -> None:
     epochs = range(1, len(history['loss']) + 1)
     
     fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(12, 10))
+    plt.suptitle('Training Performance History', fontsize=16)
 
     # Plot loss over epochs
     ax1.plot(epochs, history['loss'], marker='o', color='red', 
-             label='Loss', linewidth=1)
+             label='Loss', linewidth=1, markersize=2)
     ax1.set_title('Loss Over Epochs')
     ax1.set_xlabel('Epoch')
     ax1.set_ylabel('Loss')
@@ -36,7 +37,7 @@ def plot_history(history: dict, optimal: dict) -> None:
 
     # Plot objective over epochs.
     ax2.plot(epochs, history['objective'], marker='o', color='blue', 
-             label='Objective', linewidth=1)
+             label='Objective', linewidth=1, markersize=2)
     ax2.set_title('Objective Over Epochs')
     ax2.set_xlabel('Epoch')
     ax2.set_ylabel('Objective')
@@ -49,7 +50,7 @@ def plot_history(history: dict, optimal: dict) -> None:
 
     # Plot overtime over epochs.
     ax3.plot(epochs, history['overtime'], marker='o', color='green', 
-             label='Overtime', linewidth=1)
+             label='Overtime', linewidth=1, markersize=2)
     ax3.set_title('Fiber Overtime Over Epochs')
     ax3.set_xlabel('Epoch')
     ax3.set_ylabel('Overtime')
@@ -65,7 +66,7 @@ def plot_history(history: dict, optimal: dict) -> None:
     cmap = plt.get_cmap('tab20')
     for i in range(num_classes):
         ax4.plot(epochs, history['completion'][i, :], color=cmap(i), 
-                 label=f'Class {i}', linewidth=1)
+                 label=f'Class {i}', linewidth=1, markersize=2)
     ax4.set_title('Class Completion Over Epochs')
     ax4.set_xlabel('Epoch')
     ax4.set_ylabel('Completion')
