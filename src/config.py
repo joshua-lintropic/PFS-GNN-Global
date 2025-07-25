@@ -46,13 +46,13 @@ global_dim = 10
 
 # hyperparameters
 retrain = False
-num_epochs = 40_000
+num_epochs = 1_000_000
 num_histories = 2
 learning_rate = 5e-4
 leaky_slope = 0.1
 weights = {
-    'objective': -2000.0, 
-    'overtime': 0.1
+    'objective': -1e4, 
+    'overtime': 1e-1,
 }
 sharps = (0.0, 10.0)
 min_sharp = 5.0
