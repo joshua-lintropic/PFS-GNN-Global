@@ -84,8 +84,9 @@ def compute_loss(data: BipartiteData, fossil: Fossil,
         class_*:            (num_classes,)
         min_completion:     (1,) 
     """
-    fiber_action = scatter_softmax(edge_attr, src, dim=0)
-    fiber_action = soft_round(fiber_action, sharpness=sharpness)
+    logits = scatter_softmax(edge_attr, src, dim=0)
+    tau = max(cfg.anneal[0], cfg.anneal[1] * (1 - (epoch-1)/(cfg.num_epochs-1)))
+    fiber_action = F.gumbel_softmax(logits, tau=tau,  hard=True, dim=1)
     completion_mask = scatter_add(
         fiber_action, tgt, dim=0, dim_size=data.x_t.size(0)
     ).sum(dim=1) / (galaxy_requirement + cfg.eps)

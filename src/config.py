@@ -36,6 +36,9 @@ annulus = (0.0, 2.0)    # annulus of observation for each fiber
 # control galaxy -> fiber edge probabilities
 prob_edges = [0.0, 0.6, 0.35, 0.05]
 
+# temperature annealing for gumbel-softmax vae
+anneal = (0.5, 5.0)
+
 # model specification
 lifted_src_dim = 64
 lifted_tgt_dim = 64
