@@ -96,6 +96,7 @@ def compute_loss(data: BipartiteData, fossil: Fossil,
         completion_mask, class_labels, dim=0, dim_size=cfg.num_classes
     )
     class_completion = class_counts / fossil.class_info[:,1]
+    class_completion = torch.clamp(class_completion, min=0.0, max=1.0)
     min_completion = smooth_min(class_completion, beta=cfg.beta)
 
     """
@@ -103,17 +104,18 @@ def compute_loss(data: BipartiteData, fossil: Fossil,
     Sizes:
         fiber_overtime:     (num_src, edge_dim)
     """
-    fiber_overtime = scatter_add(
-        fiber_action, src, dim=0, dim_size=data.x_s.size(0)
-    )
-    fiber_overtime = torch.sum(F.leaky_relu(
-        fiber_overtime - torch.ones_like(fiber_overtime), 
-        negative_slope=cfg.leaky_slope
-    )**2)
+    # fiber_overtime = scatter_add(
+    #     fiber_action, src, dim=0, dim_size=data.x_s.size(0)
+    # )
+    # fiber_overtime = torch.sum(F.leaky_relu(
+    #     fiber_overtime - torch.ones_like(fiber_overtime), 
+    #     negative_slope=cfg.leaky_slope
+    # )**2)
 
     # Compute loss and objective. 
-    loss = cfg.weights['objective'] * min_completion + \
-        cfg.weights['overtime'] * fiber_overtime
+    # loss = cfg.weights['objective'] * min_completion + \
+    #     cfg.weights['overtime'] * fiber_overtime
+    loss = - min_completion
     return loss, min_completion, fiber_overtime, class_completion
 
 
