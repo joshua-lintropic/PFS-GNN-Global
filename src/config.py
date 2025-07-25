@@ -44,6 +44,7 @@ lifted_src_dim = 64
 lifted_tgt_dim = 64
 lifted_edge_dim = 128
 global_dim = 64
+heads = 4
 
 # hyperparameters
 retrain = False

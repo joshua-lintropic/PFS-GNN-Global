@@ -13,25 +13,28 @@ import config as cfg
 
 class EdgeModel(Module):
     """
-    Small MLP to learn edge embeddings. 
+    Multi-head graph attention network to better learn edge relations. 
     """
-    def __init__(self, lifted_src_dim: int, lifted_tgt_dim: int,
-                 lifted_edge_dim: int, global_dim: int) -> None:
+    def __init__(self, lifted_src_dim: int, lifted_tgt_dim: int, 
+        lifted_edge_dim: int, global_dim: int, heads: int) -> None: 
         super().__init__()
-        message_dim = lifted_src_dim + lifted_tgt_dim + lifted_edge_dim + global_dim
-        self.update_mlp = Sequential(
-            Linear(message_dim, message_dim), 
-            LeakyReLU(negative_slope=cfg.leaky_slope),
-            Linear(message_dim, lifted_edge_dim)
-        )
-        self.norm = GraphNorm(lifted_edge_dim)
+        # Project inputs into a common hidden space. 
+        hidden_dim = lifted_edge_dim
+        self.src_proj       = Linear(lifted_src_dim, hidden_dim)
+        self.tgt_proj       = Linear(lifted_tgt_dim, hidden_dim)
+        self.edge_proj      = Linear(lifted_edge_dim, hidden_dim)
+        self.global_proj    = Linear(global_dim, hidden_dim)
 
-    def forward(self, x_s: Tensor, x_t: Tensor, edge_index: Tensor, 
-                edge_attr: Tensor, x_u: Tensor) -> Tensor:
-        src, tgt = edge_index
-        E = edge_attr.size(0)
-        h = torch.cat([x_s[src], x_t[tgt], edge_attr, x_u.expand(E,-1)], dim=-1)
-        return self.norm(self.update_mlp(h))
+        # Graph attention layer. 
+        self.graph_attention = GATConv(
+            in_channels=hidden_dim, out_channels=lifted_edge_dim, 
+            heads=heads, concat=False, negative_slope=cfg.leaky_slope,
+            add_self_loops=False,
+        )
+
+        # Post-attention refinement. 
+        self.refine = LeakyReLU(negative_slope=cfg.leaky_slope)
+        self.norm   = RMSNorm(lifted_edge_dim)
 
 
 class SourceModel(Module):
@@ -39,8 +42,8 @@ class SourceModel(Module):
     Source-node update: aggregates incoming edge messages (with statistics)
     and updates source-node embeddings.
     """
-    def __init__(self, lifted_src_dim: int, lifted_tgt_dim: int,
-                 lifted_edge_dim: int, global_dim: int) -> None:
+    def __init__(self, lifted_src_dim: int, lifted_tgt_dim: int, 
+        lifted_edge_dim: int, global_dim: int) -> None:
         super().__init__()
         message_dim = lifted_tgt_dim + lifted_edge_dim
         self.message_mlp = Sequential(
@@ -57,7 +60,7 @@ class SourceModel(Module):
         self.norm = GraphNorm(lifted_src_dim)
 
     def forward(self, x_s: Tensor, x_t: Tensor, edge_index: Tensor, 
-                edge_attr: Tensor, x_u: Tensor) -> Tensor:
+        edge_attr: Tensor, x_u: Tensor) -> Tensor:
         """
         Aggregates statistical data from target nodes and edges. 
         """
@@ -87,8 +90,8 @@ class TargetModel(Module):
     """
     Target-node update: sums incoming edge messages and updates target-node embeddings.
     """
-    def __init__(self, lifted_src_dim: int, lifted_tgt_dim: int,
-                 lifted_edge_dim: int, global_dim: int) -> None:
+    def __init__(self, lifted_src_dim: int, lifted_tgt_dim: int, 
+        lifted_edge_dim: int, global_dim: int) -> None:
         super().__init__()
         message_dim = lifted_src_dim + lifted_edge_dim
         self.message_mlp = Sequential(
@@ -106,7 +109,7 @@ class TargetModel(Module):
 
 
     def forward(self, x_s: Tensor, x_t: Tensor, edge_index: Tensor, 
-                edge_attr: Tensor, x_u: Tensor) -> Tensor:
+        edge_attr: Tensor, x_u: Tensor) -> Tensor:
         """
         Aggregates data from source nodes and edges. 
         """
@@ -122,8 +125,8 @@ class GlobalModel(Module):
     """
     Graph-level update: pools node embeddings to update global features.
     """
-    def __init__(self, lifted_src_dim: int, lifted_tgt_dim: int,
-                 lifted_edge_dim: int, global_dim: int) -> None:
+    def __init__(self, lifted_src_dim: int, lifted_tgt_dim: int, 
+        lifted_edge_dim: int, global_dim: int) -> None:
         super().__init__()
         update_dim = global_dim + lifted_src_dim + lifted_tgt_dim
         self.mlp = Sequential(
@@ -134,7 +137,7 @@ class GlobalModel(Module):
         self.norm = RMSNorm(global_dim)
 
     def forward(self, x_s: Tensor, x_t: Tensor, edge_index: Tensor, 
-                edge_attr: Tensor, x_u: Tensor) -> Tensor:
+        edge_attr: Tensor, x_u: Tensor) -> Tensor:
         """
         Graph-level averaging from source and target nodes. 
         """
@@ -150,19 +153,20 @@ class Block(Module):
     and global update modules.
     """
     def __init__(self, lifted_src_dim: int, lifted_tgt_dim: int, 
-                 lifted_edge_dim: int, global_dim: int) -> None:
+        lifted_edge_dim: int, global_dim: int) -> None:
         super().__init__()
         self.src_model = SourceModel(lifted_src_dim, lifted_tgt_dim, 
                                      lifted_edge_dim, global_dim)
         self.tgt_model = TargetModel(lifted_src_dim, lifted_tgt_dim, 
                                      lifted_edge_dim, global_dim)
         self.edge_model = EdgeModel(lifted_src_dim, lifted_tgt_dim, 
-                                    lifted_edge_dim, global_dim)
+                                    lifted_edge_dim, global_dim, 
+                                    heads=cfg.heads)
         self.global_model = GlobalModel(lifted_src_dim, lifted_tgt_dim, 
                                         lifted_edge_dim, global_dim)
 
     def forward(self, x_s: Tensor, x_t: Tensor, edge_index: Tensor, 
-                edge_attr: Tensor, x_u: Tensor) -> Tensor:
+        edge_attr: Tensor, x_u: Tensor) -> Tensor:
         """
         Sequentially applies: edge -> source -> target -> global updates.
         Includes residual connections for faster convergence. 
@@ -184,8 +188,8 @@ class GraphNetwork(Module):
     to predict a discrete time value per edge via a differentiable rounding scheme.
     """
     def __init__(self, num_blocks: int, src_dim: int, tgt_dim: int, 
-                 edge_dim: int, lifted_src_dim: int, lifted_tgt_dim: int, 
-                 lifted_edge_dim: int, global_dim: int) -> None:
+        edge_dim: int, lifted_src_dim: int, lifted_tgt_dim: int, 
+        lifted_edge_dim: int, global_dim: int) -> None:
         super().__init__()
 
         # Encode node features into higher-dimensional representation.
@@ -206,9 +210,6 @@ class GraphNetwork(Module):
         )
 
         # Apply several rounds of message-passing blocks. 
-        # self.msg_pass_blocks = Sequential(*(Block(
-        #     lifted_src_dim, lifted_tgt_dim, lifted_edge_dim, global_dim
-        # ) for _ in range(num_blocks)))
         self.msg_pass_blocks = ModuleList([
             Block(lifted_src_dim, lifted_tgt_dim, lifted_edge_dim, global_dim)
             for _ in range(cfg.num_blocks)
