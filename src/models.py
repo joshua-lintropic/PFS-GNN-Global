@@ -1,8 +1,10 @@
+# models.py
 import torch
 from torch import Tensor
-from torch.nn import Linear, LeakyReLU, BatchNorm1d, RMSNorm, Sequential, Module, ModuleList
+from torch.nn import Linear, LeakyReLU, RMSNorm, Sequential, Module, ModuleList
 import torch.nn.functional as F
 from torch_geometric.data import HeteroData
+from torch_geometric.nn import GraphNorm
 from torch_scatter import scatter_add, scatter_mean, scatter_softmax
 
 from bipartite_data import BipartiteData
@@ -22,7 +24,7 @@ class EdgeModel(Module):
             LeakyReLU(negative_slope=cfg.leaky_slope),
             Linear(message_dim, lifted_edge_dim)
         )
-        self.norm = BatchNorm1d(lifted_edge_dim)
+        self.norm = GraphNorm(lifted_edge_dim)
 
     def forward(self, x_s: Tensor, x_t: Tensor, edge_index: Tensor, 
                 edge_attr: Tensor, x_u: Tensor) -> Tensor:
@@ -52,7 +54,7 @@ class SourceModel(Module):
             LeakyReLU(negative_slope=cfg.leaky_slope),
             Linear(update_dim, lifted_src_dim)
         )
-        self.norm = BatchNorm1d(lifted_src_dim)
+        self.norm = GraphNorm(lifted_src_dim)
 
     def forward(self, x_s: Tensor, x_t: Tensor, edge_index: Tensor, 
                 edge_attr: Tensor, x_u: Tensor) -> Tensor:
@@ -100,7 +102,7 @@ class TargetModel(Module):
             LeakyReLU(negative_slope=cfg.leaky_slope),
             Linear(update_dim, lifted_tgt_dim)
         )
-        self.norm = BatchNorm1d(lifted_tgt_dim)
+        self.norm = GraphNorm(lifted_tgt_dim)
 
 
     def forward(self, x_s: Tensor, x_t: Tensor, edge_index: Tensor, 
@@ -163,11 +165,16 @@ class Block(Module):
                 edge_attr: Tensor, x_u: Tensor) -> Tensor:
         """
         Sequentially applies: edge -> source -> target -> global updates.
+        Includes residual connections for faster convergence. 
         """
-        edge_attr = self.edge_model(x_s, x_t, edge_index, edge_attr, x_u)
-        x_s = self.src_model(x_s, x_t, edge_index, edge_attr, x_u)
-        x_t = self.tgt_model(x_s, x_t, edge_index, edge_attr, x_u)
-        x_u = self.global_model(x_s, x_t, edge_index, edge_attr, x_u)
+        edge_res = self.edge_model(x_s, x_t, edge_index, edge_attr, x_u)
+        edge_attr = edge_attr + edge_res
+        src_res = self.src_model(x_s, x_t, edge_index, edge_attr, x_u)
+        x_s = x_s + src_res
+        tgt_res = self.tgt_model(x_s, x_t, edge_index, edge_attr, x_u)
+        x_t = x_t + tgt_res
+        global_res = self.global_model(x_s, x_t, edge_index, edge_attr, x_u)
+        x_u = x_u + global_res
         return x_s, x_t, edge_index, edge_attr, x_u
 
 
@@ -234,7 +241,9 @@ class GraphNetwork(Module):
         edge_attr = data.edge_attr
         x_u = data.x_u
 
-        # Encode edges into a higher-dimensional representation. 
+        # Encode features into a higher-dimensional representation. 
+        x_s = self.src_encoder(x_s)
+        x_t = self.tgt_encoder(x_t)
         edge_attr = self.edge_encoder(edge_attr)
 
         # Apply several rounds of MetaLayer-style message passing on graph. 
@@ -249,12 +258,3 @@ class GraphNetwork(Module):
 
         return BipartiteData(x_s, x_t, edge_index, edge_attr, x_u)
 
-    def encode(self, data: BipartiteData) -> BipartiteData: 
-        data.x_s = self.src_encoder(data.x_s)
-        data.x_t = self.tgt_encoder(data.x_t)
-        return data
-
-    def decode(self, data: BipartiteData) -> BipartiteData:
-        data.x_s = self.src_decoder(data.x_s)
-        data.x_t = self.tgt_decoder(data.x_t)
-        return data
