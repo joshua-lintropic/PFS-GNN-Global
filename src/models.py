@@ -198,10 +198,6 @@ class GraphNetwork(Module):
             Linear(lifted_edge_dim, lifted_edge_dim)
         )
 
-        # A state variable for whether source and target nodes are in 
-        # the higher-dimensional representation. 
-        self.encoded = False
-
         # Apply several rounds of message-passing blocks. 
         # self.msg_pass_blocks = Sequential(*(Block(
         #     lifted_src_dim, lifted_tgt_dim, lifted_edge_dim, global_dim
@@ -232,11 +228,11 @@ class GraphNetwork(Module):
         """
         Forward pass through MetaLayer-style message passing blocks.
         """
-        x_s = data['src'].x
-        x_t = data['tgt'].x
-        edge_index = data['src', 'to', 'tgt'].edge_index
-        edge_attr = data['src', 'to', 'tgt'].edge_attr
-        x_u = data['global'].x
+        x_s = data.x_s
+        x_t = data.x_t
+        edge_index = data.edge_index
+        edge_attr = data.edge_attr
+        x_u = data.x_u
 
         # Encode edges into a higher-dimensional representation. 
         edge_attr = self.edge_encoder(edge_attr)
@@ -249,24 +245,16 @@ class GraphNetwork(Module):
         src, _ = edge_index
 
         # Apply exposure-wise softmax grouped by source nodes. 
-        edge_attr = scatter_softmax(self.edge_decoder(edge_attr), src, dim=0)
+        edge_attr = self.edge_decoder(edge_attr)
 
-        # Update the data. 
-        data['src'].x = x_s
-        data['tgt'].x = x_t
-        data['src', 'to', 'tgt'].edge_attr = edge_attr
-        data['global'].x = x_u
-
-        return data
+        return BipartiteData(x_s, x_t, edge_index, edge_attr, x_u)
 
     def encode(self, data: BipartiteData) -> BipartiteData: 
-        data['src'].x = self.src_encoder(data['src'].x)
-        data['tgt'].x = self.tgt_encoder(data['tgt'].x)
-        self.encoded = True
+        data.x_s = self.src_encoder(data.x_s)
+        data.x_t = self.tgt_encoder(data.x_t)
         return data
 
     def decode(self, data: BipartiteData) -> BipartiteData:
-        data['src'].x = self.src_decoder(data['src'].x)
-        data['tgt'].x = self.tgt_decoder(data['tgt'].x)
-        self.encoded = False
+        data.x_s = self.src_decoder(data.x_s)
+        data.x_t = self.tgt_decoder(data.x_t)
         return data

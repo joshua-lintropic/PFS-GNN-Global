@@ -27,7 +27,29 @@ class BipartiteData():
         self.x_u = self.x_u.to(d)
 
         return self
+
+
+class Fossil():
+    """
+    Stores original state information for calculations. 
+    """
+    def __init__(self, edge_rank: Tensor, class_info: Tensor, 
+                 class_labels: Tensor, time_req: Tensor, 
+                 time_spent: Tensor) -> None:
+        self.edge_rank = edge_rank
+        self.class_info = class_info
+        self.class_labels = class_labels
+        self.time_req = time_req
+        self.time_spent = time_spent
     
+    def to(self, d: device) -> Self: 
+        self.edge_rank = self.edge_rank.to(d)
+        self.class_info = self.class_info.to(d)
+        self.class_labels = self.class_labels.to(d)
+        self.time_req = self.time_req.to(d)
+        self.time_spent = self.time_spent.to(d)
+
+
 def construct_data(num_src: int, num_tgt: int, class_info: Tensor,
                    prob_edges: Tensor) -> BipartiteData:
     """
@@ -69,22 +91,24 @@ def construct_data(num_src: int, num_tgt: int, class_info: Tensor,
     outer_radii = r_outer.expand(num_src, 1)
 
     # Combine into source nodes. Resulting size of (num_src, 4). 
-    src_nodes = torch.cat([src_pos, inner_radii, outer_radii], dim=1)
+    x_s = torch.cat([src_pos, inner_radii, outer_radii], dim=1)
 
     # === Target node feature construction. ===
     # Label the galaxies according to their class number. 
-    # Resulting `labels` has size (num_tgt, 1). 
-    labels = torch.cat([
-        torch.full((int(count / cfg.num_fields),), float(i), device=cfg.device)
-        for i, count in enumerate(class_info[:,1])
-    ]).unsqueeze(1)
+    # Resulting `class_labels` has size (num_tgt,1). 
+    repeats = [int(cnt.item()) // cfg.num_fields for cnt in class_info[:-1,1]]
+    repeats.append(num_tgt - sum(repeats))
+    class_labels = torch.repeat_interleave(
+        torch.arange(cfg.num_classes, device=cfg.device).to(torch.float),
+        torch.tensor(repeats, device=cfg.device)
+    ).unsqueeze(1)
 
     # Required number of exposures to completion. Initialized to class values. 
     # Resulting `requirements` has size (num_tgt, 1).
-    time_req = torch.cat([
-        torch.full((int(count / cfg.num_fields),), float(tr), device=cfg.device)
-        for tr, count in class_info
-    ]).unsqueeze(1)
+    time_req = torch.repeat_interleave(
+        class_info[:,0].to(torch.float),
+        torch.tensor(repeats, device=cfg.device)
+    ).unsqueeze(1)
 
     # Number of exposures already received by target nodes. Initialized to zeros.
     time_spent = torch.zeros((num_tgt, 1), device=cfg.device)
@@ -101,14 +125,13 @@ def construct_data(num_src: int, num_tgt: int, class_info: Tensor,
     priority = torch.rand((num_tgt, 1), device=cfg.device)
 
     # Combine into target nodes. Resulting size of (num_tgt, 6). 
-    tgt_nodes = torch.cat([labels, time_req, time_spent, tgt_pos, priority], dim=1)
+    x_t = torch.cat([class_labels, time_req, time_spent, tgt_pos, priority], dim=1)
 
     # === Edge connectivity construction. === 
     # Compute pairwise distances (vectorized). 
     dists = torch.cdist(src_pos, tgt_pos)
     valid = (dists >= r_inner)  & (dists <= r_outer)
-    observable = dists.clone()
-    observable[~valid] = float('inf')
+    observable = dists.masked_fill(~valid, float('inf'))
 
     # For each target, get k nearest source candidates. 
     k = prob_edges.size(0)
@@ -127,101 +150,22 @@ def construct_data(num_src: int, num_tgt: int, class_info: Tensor,
     # Combine into edge lists. edge_pairs is shape (E, 2) holding [rank, tgt]. 
     edge_pairs = mask.nonzero(as_tuple=False)
     edge_rank = edge_pairs[:,0]
-    tgt_index = edge_pairs[:, 1]
+    tgt_index = edge_pairs[:,1]
     src_index = idx_topk[edge_rank, tgt_index]
 
+    E = src_index.size(0)
     edge_index = torch.stack([src_index, tgt_index], dim=0)
-    edge_attr = torch.rand((edge_index.size(1), cfg.total_exposures), 
-                           device=cfg.device)
+    edge_attr = torch.clamp(torch.normal(
+        mean=0.5, std=0.15, size=(E, cfg.total_exposures), device=cfg.device
+    ), min=0.0)
     
     # === Global node feature construction. === 
-    global_node = torch.rand((1, cfg.global_dim), device=cfg.device)
+    x_u = torch.rand((1, cfg.global_dim), device=cfg.device)
 
     # === Build bipartite graph. ===
-    data = BipartiteData()
-    data.x_s = src_nodes
-    data.x_t = tgt_nodes
-    data.edge_index = edge_index
-    data.edge_attr = edge_attr
-    data.x_u = global_node
+    data = BipartiteData(x_s, x_t, edge_index, edge_attr, x_u)
 
-    return data
+    # Store original state data. 
+    fossil = Fossil(edge_rank, class_info, class_labels, time_req, time_spent)
 
-def visualize_data(data: BipartiteData, edge_rank: Tensor, class_labels: Tensor, 
-                   max_edges: int, edge_alpha: float, src_size: int, tgt_size: int, 
-                   figsize: tuple, path: str) -> None:
-    """
-    Scatter-plot src and tgt nodes at their 2D positions and draw (sampled) edges.
-
-    Args:
-        max_edges:  maximum number of edges to plot (randomly sampled).
-        edge_alpha: transparency for edge lines.
-        node_size:  marker size for node scatter.
-        figsize:    size of the matplotlib figure.
-
-    Returns: 
-        None
-    
-    TODO: recompute edge_rank at runtime. 
-    """
-    src_pos = data.x_s[:, :2].cpu().numpy()
-    tgt_pos = data.x_t[:, 3:5].cpu().numpy()
-
-    # Sample edges if necessary.
-    edge_index = data.edge_index.cpu().numpy()
-    edge_rank = edge_rank.detach().cpu().numpy().astype(int)
-    n_edges = edge_index.shape[1]
-    if n_edges > max_edges:
-        print(f'{n_edges} edges is too dense, truncating to {max_edges}')
-        idx = np.random.choice(n_edges, max_edges, replace=False)
-        edge_index = edge_index[:, idx]
-        edge_rank = edge_rank[idx]
-
-    fig, ax = plt.subplots(figsize=figsize)
-    ax.set_aspect('equal')
-    ax.axis('off')
-
-    # Draw sampled edges.
-    edge_cmap = plt.get_cmap('viridis')
-    unique_ranks = np.unique(edge_rank)
-    edge_colors = {r: edge_cmap(i / (len(unique_ranks))) 
-            for i, r in enumerate(unique_ranks)}
-    for (s, t, r) in zip(edge_index[0], edge_index[1], edge_rank):
-        x0, y0 = src_pos[s]
-        x1, y1 = tgt_pos[t]
-        ax.plot([x0, x1], [y0, y1], lw=0.5, alpha=edge_alpha, 
-                color=edge_colors[r], zorder=1)
-
-    # Draw source nodes.
-    node_cmap = plt.get_cmap('tab20')
-    src_color = node_cmap(0)
-    ax.scatter(src_pos[:,0], src_pos[:,1], c=[src_color], s=src_size, 
-            marker='o', label='Fibers', zorder=2)
-
-    # Color target nodes by their class label.
-    class_labels = class_labels.cpu().numpy()
-    unique_labels = np.unique(class_labels)
-    for idx, label in enumerate(unique_labels):
-        mask = class_labels == label
-        label_color = node_cmap((idx+1) / len(unique_labels))
-        ax.scatter(tgt_pos[mask, 0], tgt_pos[mask, 1], s=tgt_size, 
-                c=[label_color], label=f'Class {int(label)}', 
-                edgecolor='k', linewidth=0.2, alpha=0.9, zorder=3)
-
-    # Plot node legend. 
-    node_handles, node_labels = ax.get_legend_handles_labels()
-    node_legend = ax.legend(node_handles, node_labels, loc='upper right', 
-                            fontsize='small')
-    ax.add_artist(node_legend)
-
-    edge_handles = [plt.Line2D([0],[0], color=edge_colors[r], lw=2)
-            for r in unique_ranks]
-    endings = ['th', 'st', 'nd', 'rd', 'th']
-    edge_labels = [f'{r+1}{endings[min(r+1, len(endings)-1)]}-nearest' 
-                for r in unique_ranks]
-    ax.legend(edge_handles, edge_labels, title='kth nearest source', 
-            loc='upper left', fontsize='small')
-    ax.set_title('PFS Fiber-Galaxy Spatial Visualization with Connectivity', fontsize=20)
-    plt.tight_layout()
-    plt.savefig(path, dpi=cfg.dpi)
-    plt.closefig()
+    return data, fossil

@@ -2,38 +2,31 @@ import torch
 from torch.cuda.amp import autocast, GradScaler
 from torch.optim import AdamW
 import numpy as np
-from tqdm import trange
+from tqdm import trange, tqdm
 from datetime import datetime
 import os
 
 from models import GraphNetwork
-from bipartite_data import BipartiteData, construct_data
+from bipartite_data import BipartiteData, Fossil, construct_data
 from loss_function import compute_loss, compute_upper_bound
+from visualize import plot_history
 import config as cfg
 
 
-def train_step(data: BipartiteData, model: GraphNetwork, optimizer: AdamW, 
-               epoch: int, scaler: GradScaler, history: dict, 
-               optimal: dict) -> None: 
+def train_step(data: BipartiteData, fossil: Fossil, model: GraphNetwork, 
+               optimizer: AdamW, epoch: int, history: dict, 
+               optimal: dict) -> tuple[np.generic]: 
     # Backpropagate the loss function. 
     optimizer.zero_grad()
+    data_ = model(data)
     try: 
-        param = (epoch - 1) / (cfg.num_epochs - 1) 
+        sharpness = cfg.sharps[0] + (cfg.sharps[1]-cfg.sharps[0]) \
+            * (epoch-1)/(cfg.num_epochs-1)
     except ZeroDivisionError: 
-        param = 0
-    sharpness = cfg.sharps[0] + param * (cfg.sharps[1] - cfg.sharps[0])
-    with autocast():
-        data = model(data)
-        loss, objective, observations = compute_loss(data, sharpness)
-    scaler.scale(loss).backward()
-    scaler.step(optimizer)
-    scaler.update()
-
-    # Detach for the next iteration. 
-    data.x_s = data.x_s.detach()
-    data.x_t = data.x_t.detach()
-    data.edge_attr = data.edge_attr.detach()
-    data.x_u = data.x_u.detach()
+        sharpness = cfg.sharps[0]
+    loss, objective = compute_loss(data_, fossil, sharpness)
+    loss.backward()
+    optimizer.step()
 
     # Store history for analysis. 
     loss_cpu = loss.detach().cpu().numpy()
@@ -46,23 +39,22 @@ def train_step(data: BipartiteData, model: GraphNetwork, optimizer: AdamW,
         optimal['loss'] = loss_cpu
         optimal['objective'] = objective_cpu
         optimal['epoch'] = epoch
-        optimal['plan'] = observations.detach().cpu().numpy()
         torch.save(
             model.state_dict(), 
             os.path.join(cfg.models_dir, cfg.checkpoint_file)
         )
     
-    return data
+    return loss_cpu, objective_cpu
 
 
 def train(): 
     # Create the message-passing network and lift the data. 
     class_info = np.loadtxt(os.path.join(
-        cfg.data_dir, cfg.class_file), dlimiter=','
+        cfg.data_dir, cfg.class_file), delimiter=','
     )
     class_info = torch.tensor(class_info, device=cfg.device)
     prob_edges = torch.tensor(cfg.prob_edges, device=cfg.device)
-    data = construct_data(
+    data, fossil = construct_data(
         num_src = cfg.num_fibers,
         num_tgt = cfg.num_galaxies // cfg.num_fields,
         class_info = class_info, 
@@ -94,32 +86,32 @@ def train():
         'loss': np.inf, 
         'objective': -np.inf,
         'epoch': -1,
-        'plan': np.zeros(cfg.total_exposures, cfg.num_galaxies // cfg.num_fields),
     }
 
     # Begin training and optimization. 
     model.train()
     optimizer = AdamW(model.parameters(), lr=cfg.learning_rate)
-    scaler = GradScaler()
     desc = 'Training Neural Message Passing for Galaxy Evolution'
-    for epoch in trange(1, cfg.num_epochs + 1, desc=desc): 
-        data = train_step(data, model, optimizer, epoch, scaler, 
-                          history, optimal)
+    progress_bar = trange(1, cfg.num_epochs + 1, desc=desc)
+    for epoch in progress_bar: 
+        loss, objective = train_step(data, fossil, model, optimizer, 
+                                     epoch, history, optimal)
+        progress_bar.set_postfix(loss=loss, objective=objective)
 
-    return data, model, history, optimal
+    return data, fossil, model, history, optimal
     
 
 def main(): 
     # Create models directory if it exists. 
     os.makedirs(cfg.models_dir, exist_ok=True)
 
-    data, model, history, optimal = train()
+    data, fossil, model, history, optimal = train()
     time = datetime.now()
     time = time.strftime("%B %-d, %Y @ %I:%M:%S %p")
 
     # Calculate relative optimality.
-    upper_bound = compute_upper_bound(data)
-    ratio = data['global'].objective / upper_bound
+    upper_bound = compute_upper_bound(fossil)
+    ratio = optimal['objective'] / upper_bound
     
     # Write optimal to log file. 
     os.makedirs(cfg.results_dir, exist_ok=True)
@@ -132,9 +124,10 @@ def main():
         for key, val in optimal.items(): 
             if key in excluded_keys: 
                 continue
-            file.write(f'Optimal {key}: {val}')
+            file.write(f'Optimal {key}: {val}\n')
     
     # Plot the results. 
+    plot_history(history, optimal)
 
 if __name__ == '__main__': 
     main()

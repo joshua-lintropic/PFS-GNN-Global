@@ -17,5 +17,4 @@ module load anaconda3/2024.10
 conda activate pfs-gnn
 
 cd src
-python bipartite_data.py --save=True --visualize=False
-# python train.py
+python train.py
