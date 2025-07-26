@@ -51,14 +51,10 @@ def soft_floor(x: Tensor, sharpness: float,
     return x + 1/pi * torch.arctan(num/den) - torch.arctan(r/(1-r))
 
 
-def smooth_min(x: Tensor, beta: float) -> Tensor:
-    return  -1.0/beta * torch.logsumexp(-beta * x, dim=0)
-
-
 def compute_loss(data: BipartiteData, fossil: Fossil, 
-    sharpness: float, tau: float) -> tuple[Tensor]:
+    sharpness: float) -> tuple[Tensor]:
     """
-    Smooth loss function that rewards minimum class completion and 
+    Loss function that rewards minimum class completion and 
     punishes fiber overtime. 
 
     Args: 
@@ -84,8 +80,8 @@ def compute_loss(data: BipartiteData, fossil: Fossil,
         class_*:            (num_classes,)
         min_completion:     (1,) 
     """
-    logits = scatter_softmax(edge_attr, src, dim=0)
-    fiber_action = F.gumbel_softmax(logits, tau=tau,  hard=True, dim=1)
+    fiber_action = scatter_softmax(edge_attr, src, dim=0)
+    fiber_action = soft_round(fiber_action, sharpness)
     completion_mask = scatter_add(
         fiber_action, tgt, dim=0, dim_size=data.x_t.size(0)
     ).sum(dim=1) / (galaxy_requirement + cfg.eps)
@@ -97,7 +93,7 @@ def compute_loss(data: BipartiteData, fossil: Fossil,
     )
     class_completion = class_counts / fossil.class_info[:,1]
     class_completion = torch.clamp(class_completion, min=0.0, max=1.0)
-    min_completion = smooth_min(class_completion, beta=cfg.beta)
+    min_completion = torch.min(class_completion)
 
     """
     Punishes fibers for trying to observe >1 galaxy per exposure. 
@@ -112,11 +108,12 @@ def compute_loss(data: BipartiteData, fossil: Fossil,
     #     negative_slope=cfg.leaky_slope
     # )**2)
 
-    # Compute loss and objective. 
+    # # Compute loss and objective. 
     # loss = cfg.weights['objective'] * min_completion + \
     #     cfg.weights['overtime'] * fiber_overtime
-    loss = - min_completion
-    return loss, min_completion, fiber_overtime, class_completion
+    loss = - 100.0 * min_completion
+    # return loss, min_completion, fiber_overtime, class_completion
+    return loss, min_completion, class_completion
 
 
 def compute_upper_bound(fossil: Fossil) -> float:

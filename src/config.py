@@ -29,7 +29,7 @@ num_classes = 12        # number of galaxy classes
 num_fibers = 2_000      # number of available fibers
 num_fields = 10         # partitioning of the sky
 num_pointings = 3       # number of positions with different fiber views
-num_blocks =  8         # number of message-passing rounds
+num_blocks = 32         # number of message-passing rounds
 total_exposures = 42    # number of observations stages
 annulus = (0.0, 2.0)    # annulus of observation for each fiber
 
@@ -48,21 +48,18 @@ dropout = 0.5
 
 # hyperparameters
 retrain = False
-num_epochs = 100
-num_histories = 2
-learning_rate = 5e-4
+num_epochs = 10
+learning_rate = 1e-4
 leaky_slope = 0.1
 weights = {
-    'objective': -1e4, 
-    'overtime': 1e-1,
+    'objective': -1e5, 
+    'overtime': 1.0,
 }
 sharps = (0.0, 10.0)
 min_sharp = 5.0
-beta = 50.0
+optimal = 0.62
 
 # miscellaneous 
 seed = 42       # random seed
 dpi = 600       # plot density
 eps = 1e-6      # numerical stability
-stats = False   # show intermediate stats with tqdm (slower)
-
