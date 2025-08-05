@@ -2,11 +2,12 @@ import torch
 from torch import Tensor
 from torch.optim import Adam
 from bipartite_data import BipartiteData
-from models import GraphNetwork
+import numpy as np
 import os
 from tqdm import trange
 from datetime import datetime
 
+from models import GraphNetwork
 from loss_function import compute_loss, compute_upper_bound
 import config as cfg
 
@@ -55,6 +56,13 @@ def train_step(data: BipartiteData, model: GraphNetwork,
 def train(): 
     # Create the message-passing network and lift the data. 
     data = torch.load(os.path.join(cfg.data_dir, cfg.data_file), weights_only=False)
+    class_info = np.loadtxt(os.path.join(cfg.data_dir, cfg.class_file), delimiter=',')
+    class_info = torch.tensor(class_info)
+    prob_edges = torch.tensor([0.0, 0.65, 0.3, 0.05])
+    data = BipartiteData()
+    data.construct(num_src=cfg.num_fibers, num_tgt=int(cfg.num_galaxies/cfg.num_fields), 
+                   class_info=class_info, prob_edges=prob_edges, device=cfg.device, 
+                   seed=cfg.seed)
     data = data.to(cfg.device)
     model = GraphNetwork(
         num_blocks = cfg.num_blocks, 
