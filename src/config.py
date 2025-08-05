@@ -1,56 +1,65 @@
+# config.py
 import torch
+import os
 
 if torch.cuda.is_available():
     device = torch.device('cuda')
-elif getattr(torch.backends, 'mps', None) and torch.backends.mps.is_available():
-    device = torch.device('mps')
+    torch.backends.cudnn.benchmark = True
+    torch.backends.cudnn.deterministic = False
 else:
-    device = torch.device('cpu')
+    raise Exception('CUDA not found, please install a supported version')
 
 # project directories
-data_dir = '../data/'
-figures_dir = '../figures/'
-models_dir = '../models/'
-results_dir = '../results/'
+data_dir    = os.path.expanduser('~/PFS-GNN-Global/data/')
+models_dir  = os.path.expanduser('~/PFS-GNN-Global/models/')
+results_dir = os.path.expanduser('~/PFS-GNN-Global/results/')
 
 # load and save points 
 class_file = 'class_info.csv'
 data_file = 'bipartite_data.pt'
-viz_file = 'bipartite_graph.png'
+graph_file = 'bipartite_graph.png'
+history_file = 'history.png'
 checkpoint_file = 'model_gnn_dev.pt'
 pretrained_file = 'model_gnn_core.pt'
 log_file = 'log.txt'
 
 # problem parameters
-num_galaxies = 338_900 # number of target nodes
-num_fibers = 2_000 # number of source nodes
-num_fields = 10 # partitioning of the sky
-num_blocks = 4 # number of message-passing rounds
-total_exposures = 42 # number of observations stages
-annulus = (1e-6, 1e-1)
+num_galaxies = 338_900  # number of distinct galaxies (all fields)
+num_classes = 12        # number of galaxy classes
+num_fibers = 2_000      # number of available fibers
+num_fields = 10         # partitioning of the sky
+num_pointings = 3       # number of positions with different fiber views
+num_blocks = 32         # number of message-passing rounds
+total_exposures = 42    # number of observations stages
+annulus = (0.0, 2.0)    # annulus of observation for each fiber
+
+# control galaxy -> fiber edge probabilities
+prob_edges = [0.0, 0.6, 0.35, 0.05]
+
+# temperature annealing for gumbel-softmax vae
+anneal = (0.5, 5.0)
 
 # model specification
-lifted_src_dim = 10
-lifted_tgt_dim = 10
-lifted_edge_dim = 50
-global_dim = 10
+lifted_src_dim = 64
+lifted_tgt_dim = 64
+lifted_edge_dim = 128
+global_dim = 64
+dropout = 0.5
 
 # hyperparameters
 retrain = False
-num_epochs = 20_000
-num_histories = 2
-learning_rate = 5e-4
+num_epochs = 10
+learning_rate = 1e-4
 leaky_slope = 0.1
 weights = {
-    'objective': 10.0, 
-    'overtime': 0.1
+    'objective': -1e5, 
+    'overtime': 1.0,
 }
-min_completion_weight = 10.0
-fiber_overtime_weight = 0.1
-sharps = (0.0, 100.0)
-min_sharp = 50.0
+sharps = (0.0, 10.0)
+min_sharp = 5.0
+optimal = 0.62
 
 # miscellaneous 
-seed = 42
-dpi = 600
-eps = 1e-6
+seed = 42       # random seed
+dpi = 600       # plot density
+eps = 1e-6      # numerical stability
